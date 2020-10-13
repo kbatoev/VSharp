@@ -9,7 +9,7 @@ open VSharp
 open VSharp.Core
 open VSharp.Reflection
 
-type cfg = CFG.cfgData
+type cfg = CFG.cfg
 
 type public CodePortionInterpreter(ilInterpreter : ILInterpreter, codeLoc : ICodeLocation, cfg : cfg, rv : int list) =
     inherit VSharp.Core.InterpreterBase<cilState>()
@@ -19,7 +19,7 @@ type public CodePortionInterpreter(ilInterpreter : ILInterpreter, codeLoc : ICod
 
     override x.MakeRecursiveState cilState =
         let methodId = ilInterpreter.MakeMethodIdentifier cfg.methodBase
-        let ilCodePortion = ILCodePortion(cilState.ip.Vertex(), cilState.recursiveVertices, methodId, cilState.state)
+        let ilCodePortion = ILCodePortion(cilState.ip.Offset, cilState.recursiveVertices, methodId, cilState.state)
         ilInterpreter.ReproduceEffect ilCodePortion cilState.state (List.map (fun (_, state) -> {cilState with state = state}))
 
     member x.Invoke state this k =
@@ -53,26 +53,14 @@ type public CodePortionInterpreter(ilInterpreter : ILInterpreter, codeLoc : ICod
     override x.EvaluateOneStep cilState =
         assert (cilState.ip.CanBeExpanded())
         let lastOffset = Seq.last cfg.sortedOffsets
-        let startingOffset = cilState.ip.Vertex ()
+        let startingOffset = cilState.ip.Offset
         let endOffset =
             let u = cfg.sortedOffsets.BinarySearch(startingOffset)
             if startingOffset = lastOffset then cfg.ilBytes.Length
             else cfg.sortedOffsets.[u + 1]
-        let isOffsetOfCurrentVertex (offset : ip) = startingOffset <= offset.Vertex() && offset.Vertex() < endOffset
-        let rec executeAllInstructions (offset : ip) cilState =
-            let exceptions, nonErroredStates =
-                ilInterpreter.ExecuteInstruction cfg (offset.Vertex()) cilState
-                |> List.partition (fun (_, cilState : cilState) -> cilState.HasException)
-            exceptionsSet.AddRange(List.map snd exceptions)
-            match nonErroredStates with
-            | [] -> []
-            | list when List.forall (fst >> (=) ip.Exit) list -> List.map (fun (_, state) -> { state with ip = ip.Exit}) list
-            | (nextOffset, _)::xs as list when isOffsetOfCurrentVertex nextOffset
-                                               && List.forall (fun (offset, _) -> offset = nextOffset && isOffsetOfCurrentVertex offset) xs ->
-                List.collect ((<||) executeAllInstructions) list
-            | list -> list |> List.map (fun (offset, cilSt) -> {cilSt with ip = offset})
-        executeAllInstructions (Instruction startingOffset) cilState
-        |> List.filter (fun st -> st.IsFinished || not (st.ip.CanBeExpanded() && List.contains (st.ip.Vertex()) st.recursiveVertices))
+        let isOffsetOfCurrentVertex (ip : ip) = startingOffset <= ip.Offset && ip.Offset < endOffset
+        ilInterpreter.ExecuteInstructionsWhile isOffsetOfCurrentVertex cfg startingOffset cilState
+        |> snd |> List.filter (fun st -> st.IsFinished || not (st.ip.CanBeExpanded() && List.contains st.ip.Offset st.recursiveVertices))
     override x.IsRecursiveState cilState =
         let isHeadOfLoop (cfg : cfg) v =
             let vTime = cfg.topologicalTimes.[v]
@@ -87,7 +75,7 @@ type public CodePortionInterpreter(ilInterpreter : ILInterpreter, codeLoc : ICod
         | _ -> false
     override x.Add cilState = if cilState.ip <> ip.Exit then workingSet.Add cilState
     override x.ExploreInIsolation cilState =
-        let u = cilState.ip.Vertex()
+        let u = cilState.ip.Offset
         let rv = cilState.recursiveVertices
         let methodId = ilInterpreter.MakeMethodIdentifier cfg.methodBase
         let ilCodePortion = ILCodePortion(u, u :: rv, methodId, cilState.state)
@@ -1017,7 +1005,27 @@ and public ILInterpreter() as this =
             interpreter.Invoke
         | _ -> internalfail "unhandled ICodeLocation instance"
     override x.MakeMethodIdentifier m = { methodBase = m } :> IMethodIdentifier
-    member x.ExecuteInstruction (cfg : cfg) (offset : int) (cilState : cilState) =
+    member x.ExecuteInstructionsWhile (canBePropagated : ip -> bool) (cfg : cfg) (offset : offset) (cilState : cilState) : bool * cilState list =
+        let rec executeAllInstructions erroredStates (cilState : cilState) : bool * cilState list =
+            let insufficientExceptionThrown, allStates =
+                try
+                    false, x.ExecuteInstruction cfg cilState.ip.Offset cilState
+                with
+                | :? InsufficientInformationException -> true, []
+            match insufficientExceptionThrown with
+            | true -> true, erroredStates
+            | _ ->
+                let newErrors = allStates |> List.filter (fun (cilState : cilState) -> cilState.HasException)
+                let goodStates = allStates |> List.filter (fun (cilState) -> not cilState.HasException)
+
+                let statesForPropagation, finishedStates = goodStates |> List.partition (fun cilState -> cilState.ip |> canBePropagated)
+                let results = List.map (executeAllInstructions []) statesForPropagation
+                let insufficientExceptionThrown = results |> List.fold (fun acc x -> fst x || acc) false
+                let allStates = results |> List.collect snd
+                insufficientExceptionThrown, allStates @ finishedStates @ newErrors @ erroredStates
+        executeAllInstructions [] {cilState with ip = Instruction offset}
+
+    member x.ExecuteInstruction (cfg : cfg) (offset : int) (cilState : cilState) : cilState list=
         let opCode = Instruction.parseInstruction cfg.ilBytes offset
 //        Logger.printLog Logger.Trace "Executing instruction %O of %O [%O]" opCode cfg.methodBase cfg.methodBase.DeclaringType
         let nextTargets = Instruction.findNextInstructionOffsetAndEdges opCode cfg.ilBytes offset
@@ -1035,4 +1043,6 @@ and public ILInterpreter() as this =
 
         if opCode = Reflection.Emit.OpCodes.Add_Ovf then ()
         let leaveInstructionExecuted = opCode = OpCodes.Leave || opCode = OpCodes.Leave_S
-        newSts |> List.map (fun (d, cilState : cilState) -> d, {cilState with leaveInstructionExecuted = leaveInstructionExecuted})
+        newSts |> List.map (fun (ip, cilState : cilState) ->
+            if not <| cilState.HasException then {cilState with ip = ip; leaveInstructionExecuted = leaveInstructionExecuted}
+            else cilState)

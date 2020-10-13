@@ -22,10 +22,10 @@ type ip =
         match x with
         | Instruction _ -> true
         | _ -> false
-    member x.Vertex () =
+    member x.Offset =
         match x with
         | Instruction i -> i
-        | _              -> internalfail "Could not get vertex from destination"
+        | _              -> internalfail "Could not get offset"
 type ipTransition =
     | FallThrough of offset
     | Return
@@ -51,7 +51,12 @@ type cilState =
     member x.CanBeExpanded () = x.ip.CanBeExpanded()
     member x.IsFinished = x.isFinished x.ip
     member x.HasException = Option.isSome x.state.exceptionsRegister.ExceptionTerm
-
+    static member AppendFunctionResult (cilState : cilState) (res : term, state : state) =
+        let state =
+            match res.term with
+            | VSharp.Core.Nop -> state
+            | _ -> {state with returnRegister = Some res}
+        { cilState with state = state }
     static member MakeEmpty curV targetV state =
         { ip = curV
           isFinished = fun x -> x = targetV

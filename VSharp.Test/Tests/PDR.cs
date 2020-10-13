@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using NUnit.Framework.Internal;
+using VSharp.Test.Tests.Generic;
 
 namespace VSharp.Test.Tests
 {
@@ -120,6 +121,12 @@ namespace VSharp.Test.Tests
                 array[0] = 456;
             }
             return array[0];
+        }
+
+        [TestSvm]
+        public static A TestInsufficientInformationException()
+        {
+            return GenericClass<ClassWithOneField, A>.RetV(new A());
         }
 
         public class ClassWithOneField

@@ -10,7 +10,7 @@ open VSharp
 module public CFG =
     type internal graph = Dictionary<offset, List<offset>>
 
-    type public cfgData = {
+    type public cfg = {
         methodBase : MethodBase
         ilBytes : byte []
         sortedOffsets : List<offset>
@@ -63,12 +63,12 @@ module public CFG =
         }
         interim, cfg
 
-    let createVertex (cfgData : cfgData) offset =
+    let createVertex (cfgData : cfg) offset =
         cfgData.sortedOffsets.Add offset
         cfgData.graph.Add <| (offset, List<_>())
         cfgData.reverseGraph.Add <| (offset, List<_>())
 
-    let private addVerticesAndEdges (cfgData : cfgData) (interimData : interimData) =
+    let private addVerticesAndEdges (cfgData : cfg) (interimData : interimData) =
         interimData.verticesOffsets
 //        |> Seq.filter (fun offset -> interimData.visitedOffsetsOperationalStackBalance.[offset] = 0)
 //        |> Seq.append interimData.verticesOffsets

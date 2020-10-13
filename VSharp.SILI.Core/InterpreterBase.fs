@@ -105,11 +105,11 @@ type public ExplorerBase() =
 //        if Options.InvokeConcrete () && canUseReflection then
 //            API.Marshalling.CallViaReflection state funcId this parameters k
 //        else
-            x.ReduceFunctionSignature funcId state methodBase this parameters false (fun state ->
+            ExplorerBase.ReduceFunctionSignature funcId state methodBase this parameters false (fun state ->
             x.EnterRecursiveRegion funcId state invoke (List.map (fun (result, state) -> result, Memory.PopStack state) >> k))
 
 
-    member x.ReduceFunctionSignature (funcId : IFunctionIdentifier) state (methodBase : MethodBase) this paramValues isEffect k =
+    static member ReduceFunctionSignature (funcId : IFunctionIdentifier) state (methodBase : MethodBase) this paramValues isEffect k =
         let parameters = methodBase.GetParameters()
         let getParameterType (param : ParameterInfo) = Types.FromDotNetType state param.ParameterType
         let values, areParametersSpecified =
@@ -189,7 +189,7 @@ type public ExplorerBase() =
 
     member x.CallAbstractMethod (funcId : IFunctionIdentifier) state k =
         __insufficientInformation__ "Can't call abstract method %O, need more information about the object type" funcId
-    member x.FormInitialStateWithoutStatics (funcId : IFunctionIdentifier) =
+    static member FormInitialStateWithoutStatics (funcId : IFunctionIdentifier) =
         let this, state(*, isMethodOfStruct*) =
             match funcId with
             | :? IMethodIdentifier as m ->
@@ -199,9 +199,9 @@ type public ExplorerBase() =
             | _ -> __notImplemented__()
         let thisIsNotNull = if Option.isSome this then !!( Pointers.isNull (Option.get this)) else Nop
         let state = if Option.isSome this && thisIsNotNull <> True then Memory.withPathCondition state thisIsNotNull else state
-        x.ReduceFunctionSignature funcId state funcId.Method this Unspecified true (fun state ->  state, this, thisIsNotNull)
+        ExplorerBase.ReduceFunctionSignature funcId state funcId.Method this Unspecified true (fun state ->  state, this, thisIsNotNull)
     member x.FormInitialState (funcId : IFunctionIdentifier) : (state * term option * term) list =
-        let state, this, thisIsNotNull = x.FormInitialStateWithoutStatics funcId
+        let state, this, thisIsNotNull = ExplorerBase.FormInitialStateWithoutStatics funcId
         x.InitializeStatics state funcId.Method.DeclaringType (List.map (fun state -> state, this, thisIsNotNull(*, isMethodOfStruct*)))
 
     abstract CreateInstance : System.Type -> term list -> state -> (term * state) list

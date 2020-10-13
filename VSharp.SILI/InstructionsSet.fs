@@ -149,11 +149,11 @@ module internal InstructionsSet =
     let BranchOnNull cilState term =
         StatedConditionalExecutionCIL cilState (fun state k -> k (IsNullReference term, state))
 
-    let resolveFieldFromMetadata (cfg : cfgData) = Instruction.resolveFieldFromMetadata cfg.methodBase cfg.ilBytes
-    let resolveTypeFromMetadata (cfg : cfgData) = Instruction.resolveTypeFromMetadata cfg.methodBase cfg.ilBytes
-    let resolveTermTypeFromMetadata state (cfg : cfgData) = resolveTypeFromMetadata cfg >> Types.FromDotNetType state
-    let resolveMethodFromMetadata (cfg : cfgData) = Instruction.resolveMethodFromMetadata cfg.methodBase cfg.ilBytes
-    let resolveTokenFromMetadata (cfg : cfgData) = Instruction.resolveTokenFromMetadata cfg.methodBase cfg.ilBytes
+    let resolveFieldFromMetadata (cfg : cfg) = Instruction.resolveFieldFromMetadata cfg.methodBase cfg.ilBytes
+    let resolveTypeFromMetadata (cfg : cfg) = Instruction.resolveTypeFromMetadata cfg.methodBase cfg.ilBytes
+    let resolveTermTypeFromMetadata state (cfg : cfg) = resolveTypeFromMetadata cfg >> Types.FromDotNetType state
+    let resolveMethodFromMetadata (cfg : cfg) = Instruction.resolveMethodFromMetadata cfg.methodBase cfg.ilBytes
+    let resolveTokenFromMetadata (cfg : cfg) = Instruction.resolveTokenFromMetadata cfg.methodBase cfg.ilBytes
 
     let hashFunction (opcode : OpCode) =
         let v = opcode.Value |> int
@@ -204,18 +204,18 @@ module internal InstructionsSet =
         match cilState.opStack with
         | t :: ts -> Some t, {cilState with opStack = ts}
         | [] -> None, cilState
-    let ldc numberCreator t (cfg : cfgData) shiftedOffset (cilState : cilState) =
+    let ldc numberCreator t (cfg : cfg) shiftedOffset (cilState : cilState) =
         let num = numberCreator cfg.ilBytes shiftedOffset
         let termType = Types.FromDotNetType cilState.state t
         { cilState with opStack = Concrete num termType :: cilState.opStack } :: []
 
-    let ldloc numberCreator (cfg : cfgData) shiftedOffset (cilState : cilState) =
+    let ldloc numberCreator (cfg : cfg) shiftedOffset (cilState : cilState) =
         let index = numberCreator cfg.ilBytes shiftedOffset
         let reference, state, _ = getVarTerm cilState.state index cfg.methodBase
         let term = Memory.ReadSafe state reference
         pushResultOnStack cilState (term, state) :: []
 
-    let ldarg numberCreator (cfg : cfgData) shiftedOffset (cilState : cilState) =
+    let ldarg numberCreator (cfg : cfg) shiftedOffset (cilState : cilState) =
         let argumentIndex = numberCreator cfg.ilBytes shiftedOffset
         let state = cilState.state
         let arg, state =
@@ -229,7 +229,7 @@ module internal InstructionsSet =
                 let term = getArgTerm (argumentIndex - 1) cfg.methodBase
                 Memory.ReadSafe state term, state
         pushResultOnStack cilState (arg, state) :: []
-    let ldarga numberCreator (cfg : cfgData) shiftedOffset (cilState : cilState) =
+    let ldarga numberCreator (cfg : cfg) shiftedOffset (cilState : cilState) =
         let argumentIndex = numberCreator cfg.ilBytes shiftedOffset
         let state = cilState.state
         let address =
@@ -238,7 +238,7 @@ module internal InstructionsSet =
             | Some _ when argumentIndex = 0 -> internalfail "can't load address of ``this''"
             | Some _ -> getArgTerm (argumentIndex - 1) cfg.methodBase
         pushResultOnStack cilState (address, state) :: []
-    let stloc numberCreator (cfg : cfgData) shiftedOffset (cilState : cilState) =
+    let stloc numberCreator (cfg : cfg) shiftedOffset (cilState : cilState) =
         let variableIndex = numberCreator cfg.ilBytes shiftedOffset
         let state = cilState.state
         let left, state, typ = getVarTerm state variableIndex cfg.methodBase
@@ -295,7 +295,7 @@ module internal InstructionsSet =
         | t :: _ -> [{ cilState with opStack = t :: cilState.opStack }]
         | _ -> __corruptedStack__()
 
-    let ret (cfg : cfgData) _ (cilState : cilState) =
+    let ret (cfg : cfg) _ (cilState : cilState) =
         let state = cilState.state
         let resultTyp =
             match cfg.methodBase with
@@ -342,7 +342,7 @@ module internal InstructionsSet =
                 else idTransformation
             performCILBinaryOperation OperationType.Equal transform transform idTransformation cilState
         | _ -> __corruptedStack__()
-    let starg numCreator (cfg : cfgData) offset (cilState : cilState) =
+    let starg numCreator (cfg : cfg) offset (cilState : cilState) =
         let argumentIndex = numCreator cfg.ilBytes offset
         let argTerm =
            match cilState.this with
@@ -370,7 +370,7 @@ module internal InstructionsSet =
         | _ -> __corruptedStack__()
     let brfalse = brcommon id
     let brtrue = brcommon (!!)
-    let applyAndBranch errorStr additionalFunction brtrueFunction (cfg : cfgData) offset newOffsets (cilState : cilState) =
+    let applyAndBranch errorStr additionalFunction brtrueFunction (cfg : cfg) offset newOffsets (cilState : cilState) =
         match additionalFunction cfg offset [Instruction offset] cilState with
         | [_, st] -> brtrueFunction newOffsets st
         | _ -> internalfail errorStr
@@ -432,7 +432,7 @@ module internal InstructionsSet =
             performCILBinaryOperation op makeUnsignedInteger makeUnsignedInteger idTransformation cilState
         | _ :: _ :: _ -> internalfailf "arguments for %O are not Integers!" op
         | _ -> __corruptedStack__()
-    let ldstr (cfg : cfgData) offset (cilState : cilState) =
+    let ldstr (cfg : cfg) offset (cilState : cilState) =
         let stringToken = NumberCreator.extractInt32 cfg.ilBytes (offset + OpCodes.Ldstr.Size)
         let string = cfg.methodBase.Module.ResolveString stringToken
         let state = cilState.state
@@ -453,7 +453,7 @@ module internal InstructionsSet =
             let termForStack =castUnchecked typeForStack term cilState.state
             {cilState with opStack = termForStack::stack} :: []
         | _ -> __corruptedStack__()
-    let ldloca numberCreator (cfg : cfgData) shiftedOffset (cilState : cilState) =
+    let ldloca numberCreator (cfg : cfg) shiftedOffset (cilState : cilState) =
         let index = numberCreator cfg.ilBytes shiftedOffset
         let term, state, _ = getVarTerm cilState.state index cfg.methodBase
         pushResultOnStack cilState (term, state) :: []
@@ -474,7 +474,7 @@ module internal InstructionsSet =
                 cond1 ||| cond2
             Cps.List.foldrk checkOneCase cilState ((fallThroughGuard, fallThroughOffset)::casesAndOffsets) (fun _ k -> k []) id
         | _ -> __corruptedStack__()
-    let ldtoken (cfg : cfgData) offset (cilState : cilState) =
+    let ldtoken (cfg : cfg) offset (cilState : cilState) =
         let memberInfo = resolveTokenFromMetadata cfg (offset + OpCodes.Ldtoken.Size)
         let state = cilState.state
         let res =
@@ -484,11 +484,11 @@ module internal InstructionsSet =
             | :? MethodInfo as mi -> Terms.Concrete mi.MethodHandle (Types.FromDotNetType state typeof<RuntimeMethodHandle>)
             | _ -> internalfailf "Could not resolve token"
         pushResultOnStack cilState (res, state) :: []
-    let ldftn (cfg : cfgData) offset (cilState : cilState) =
+    let ldftn (cfg : cfg) offset (cilState : cilState) =
         let methodInfo = resolveMethodFromMetadata cfg (offset + OpCodes.Ldftn.Size)
         let methodPtr = Terms.Concrete methodInfo (Types.FromDotNetType cilState.state (methodInfo.GetType()))
         pushResultOnStack cilState (methodPtr, cilState.state) :: []
-    let initobj (cfg : cfgData) offset (cilState : cilState) =
+    let initobj (cfg : cfg) offset (cilState : cilState) =
         match cilState.opStack with
         | targetAddress :: stack ->
             let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Initobj.Size)
@@ -513,7 +513,7 @@ module internal InstructionsSet =
             elif Types.IsReal typ1 && Types.IsReal typ2 then cltun cilState
             else __notImplemented__()
         | _ -> __corruptedStack__()
-    let isinst (cfg : cfgData) offset (cilState : cilState) =
+    let isinst (cfg : cfg) offset (cilState : cilState) =
         match cilState.opStack with
         | object :: stack ->
             let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Isinst.Size)
@@ -533,7 +533,7 @@ module internal InstructionsSet =
         | arg2 :: arg1 :: _ when isReference arg2 && isReference arg1 ->
             compare OperationType.NotEqual idTransformation idTransformation cilState
         | _ -> compare OperationType.Greater makeUnsignedInteger makeUnsignedInteger cilState
-    let ldobj (cfg : cfgData) offset (cilState : cilState) =
+    let ldobj (cfg : cfg) offset (cilState : cilState) =
         match cilState.opStack with
         | address :: stack ->
             let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Ldobj.Size)
@@ -541,7 +541,7 @@ module internal InstructionsSet =
             let typedValue = castUnchecked typ value cilState.state
             {cilState with opStack = typedValue::stack} :: []
         | _ -> __corruptedStack__()
-    let stobj (cfg : cfgData) offset (cilState : cilState) =
+    let stobj (cfg : cfg) offset (cilState : cilState) =
         match cilState.opStack with
         | src :: dest :: stack ->
             let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Stobj.Size)
@@ -556,7 +556,7 @@ module internal InstructionsSet =
             let states = Memory.WriteSafe cilState.state address value
             states |> List.map (fun state -> {cilState with opStack = stack; state = state})
         | _ -> __corruptedStack__()
-    let sizeofInstruction (cfg : cfgData) offset (cilState : cilState) =
+    let sizeofInstruction (cfg : cfg) offset (cilState : cilState) =
         let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Sizeof.Size)
         let size = Types.SizeOf typ
         { cilState with opStack = MakeNumber size :: cilState.opStack } :: []
@@ -583,7 +583,7 @@ module internal InstructionsSet =
         let cilStates = op cfgData offset cilState
         List.map (withFst newOffset) cilStates
 
-    let opcode2Function : (cfgData -> offset -> ip list -> cilState -> (ip * cilState) list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
+    let opcode2Function : (cfg -> offset -> ip list -> cilState -> (ip * cilState) list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
     opcode2Function.[hashFunction OpCodes.Br]                 <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []
     opcode2Function.[hashFunction OpCodes.Br_S]               <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []
     opcode2Function.[hashFunction OpCodes.Add]                <- zipWithOneOffset <| fun _ _ -> standardPerformBinaryOperation OperationType.Add
