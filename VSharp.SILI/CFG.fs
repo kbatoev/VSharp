@@ -140,8 +140,8 @@ module public CFG =
                     data.fallThroughOffset.[v] <- Some offset
 //                    let newBalance = Instruction.countOperationalStackBalance opCode None balance
                     dfs' offset
-                | ExceptionMechanism
-                | Return -> ()
+                | ExceptionMechanism -> () // TODO: Unknown destination
+                | Return -> markVertex data.verticesOffsets v
                 | UnconditionalBranch target -> dealWithJump v target
                 | ConditionalBranch offsets -> offsets |> List.iter (dealWithJump v)
         dfs' v

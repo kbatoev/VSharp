@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using NUnit.Framework.Internal;
+using VSharp.Test.Tests.Generic;
 
 namespace VSharp.Test.Tests
 {
@@ -45,6 +46,24 @@ namespace VSharp.Test.Tests
                 return x;
             }
 
+        }
+
+
+        [TestSvm]
+        public static A TestInsufficientInformationException()
+        {
+            return GenericClass<ClassWithOneField, A>.RetV(new A());
+        }
+
+        private static V RetStruct<V>(V v) where V : struct
+        {
+            return v;
+        }
+
+        [TestSvm]
+        public static A TestInsufficientInformationExceptionForGenericMethod()
+        {
+            return RetStruct<A>(new A());
         }
 
         [TestSvm]

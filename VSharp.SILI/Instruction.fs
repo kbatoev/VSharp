@@ -13,19 +13,7 @@ type state = VSharp.Core.state
 
 type operationalStack = term list
 
-type ip =
-    | Instruction of offset
-    | Exit
-    | FindingHandler of offset // offset -- source of exception
-    with
-    member x.CanBeExpanded () =
-        match x with
-        | Instruction _ -> true
-        | _ -> false
-    member x.Vertex () =
-        match x with
-        | Instruction i -> i
-        | _              -> internalfail "Could not get vertex from destination"
+type ip = VSharp.Core.ip
 type ipTransition =
     | FallThrough of offset
     | Return
@@ -53,8 +41,8 @@ type cilState =
 
     static member Empty =
         {
-            ip = Exit
-            isFinished = fun ip -> ip = Exit
+            ip = ip.ExitPointer
+            isFinished = fun x -> x = ip.ExitPointer
             recursiveVertices = []
             opStack = []
             state = VSharp.Core.API.Memory.EmptyState

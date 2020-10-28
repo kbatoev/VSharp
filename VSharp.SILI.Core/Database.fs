@@ -15,16 +15,35 @@ module internal LegacyDatabase =
     let reported codeLoc = summaries.ContainsKey codeLoc
 
     let report codeLoc resultsAndStates =
-        assert (List.forall (fun (_,state) -> List.length state.frames = 1) resultsAndStates)
-        assert(not (summaries.ContainsKey codeLoc))
+//        assert (List.forall (fun (_,state) -> List.length state.frames = 1) resultsAndStates)
+//        assert(not (summaries.ContainsKey codeLoc))
         let summary = List.map (fun (result, state) -> { result = result; state = state}) resultsAndStates
         printLog Info "For %O got %O state%s\n%O\n\n" codeLoc resultsAndStates.Length (if resultsAndStates.Length > 1 then "s" else "")
             (summary |> List.map (fun summary -> sprintf "Result: %O; %O" summary.result (Memory.dump summary.state)) |> join "\n")
-        summaries.Add(codeLoc, summary) |> ignore
+//        summaries.Add(codeLoc, summary) |> ignore
         summary
 
     let querySummary codeLoc =
         if summaries.ContainsKey codeLoc then Some(summaries.[codeLoc]) else None
+
+type ip =
+    | Instruction of offset
+    | ExitPointer
+    | FindingHandler of offset // offset -- source of exception
+    with
+    member x.CanBeExpanded () =
+        match x with
+        | Instruction _ -> true
+        | _ -> false
+    member x.Offset =
+        match x with
+        | Instruction i -> i
+        | _              -> internalfail "Could not get vertex from destination"
+    override x.ToString() =
+        match x with
+        | Instruction offset            -> sprintf "Hex: %x" offset
+        | FindingHandler offset         -> sprintf "Trying to find handler for exception occured in offset = %x" offset
+        | ExitPointer                   -> "MethodCommonExit"
 
 type level = uint32
 
@@ -66,16 +85,16 @@ type query =
         sprintf "{query [lvl %s]: %O}" (Level.toString x.lvl) x.queryFml
 
 type databaseId =
-    { m : MethodBase; offset : int } with
+    { m : MethodBase; ip : ip } with
     override x.ToString() =
-        sprintf "%O.%O[offset=%O]" x.m.DeclaringType.FullName x.m.Name x.offset
+        sprintf "%O.%O[ip=%O]" x.m.DeclaringType.FullName x.m.Name x.ip
 
 module internal Database =
     let private lemmas = new Dictionary<databaseId, HashSet<lemma>>()
     let private paths = new Dictionary<databaseId, HashSet<path>>()
     let private queries = new Dictionary<databaseId, HashSet<query>>()
 
-    let idOfVertex (m : MethodBase) (offset : int) : databaseId = { m=m; offset=offset }
+    let idOfVertex (m : MethodBase) (ip : ip) : databaseId = { m=m; ip=ip }
 
     let addLemma (id : databaseId) (lemma : lemma) =
         let lemmas = Dict.tryGetValue2 lemmas id (fun () -> new HashSet<_>())
@@ -99,16 +118,16 @@ module internal Database =
         if not <| queries.Remove query then
             noQueryError()
 
-type Lemmas(m : MethodBase, offset : int) =
-    let id = Database.idOfVertex m offset
+type Lemmas(m : MethodBase, ip : ip) =
+    let id = Database.idOfVertex m ip
     let parsed = new Dictionary<level, HashSet<lemma>>()
     member x.Add (lemma : lemma) =
         Database.addLemma id lemma
         let lemmas = Dict.tryGetValue2 parsed lemma.lvl (fun () -> new HashSet<_>())
         lemmas.Add lemma |> ignore
 
-type Paths(m : MethodBase, offset : int) =
-    let id = Database.idOfVertex m offset
+type Paths(m : MethodBase, ip : ip) =
+    let id = Database.idOfVertex m ip
     let parsed = new Dictionary<level, HashSet<path>>()
     let used = HashSet<path>()
     member x.Add (path : path) =
@@ -124,8 +143,8 @@ type Paths(m : MethodBase, offset : int) =
             paths
 
 
-type Queries(m : MethodBase, offset : int) =
-    let id = Database.idOfVertex m offset
+type Queries(m : MethodBase, ip : ip) =
+    let id = Database.idOfVertex m ip
     let parsed = new Dictionary<level, HashSet<query>>()
     member x.Add (query : query) =
         Database.addQuery id query
