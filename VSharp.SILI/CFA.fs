@@ -201,8 +201,16 @@ module public CFA =
            assert(List.length stateWithArgsOnFrameAndAllocatedType.frames = 2)
         override x.Type = "Call"
         override x.PropagatePath (path : path) =
-            let addCallSiteResult callSiteResults (callSite : callSite) (res : term option) =
+            let addCallSiteResult (state : state) (callSite : callSite) callSiteResults =
                 if callSite.HasNonVoidResult then
+                    let res =
+                        if callSite.calledMethod.IsConstructor then
+                            assert(Option.isNone state.returnRegister)
+                            let this = Memory.ReadThis stateWithArgsOnFrameAndAllocatedType callSite.calledMethod
+                            let ref' = HeapReferenceToBoxReference this
+                            let res = Memory.ReadSafe state ref'
+                            Some res
+                        else state.returnRegister
                     assert(Option.isSome res)
                     Map.add callSite res callSiteResults
                 else callSiteResults
@@ -212,7 +220,7 @@ module public CFA =
                     x.PrintLog "propagation through callEdge:\n" callSite
                     x.PrintLog "call edge: composition left:\n" (Memory.Dump path.state)
                     x.PrintLog "call edge: composition result:\n" (Memory.Dump state)
-                    let result' = x.CommonPropagatePath (path.lvl + 1u) {state with callSiteResults = addCallSiteResult path.state.callSiteResults callSite state.returnRegister
+                    let result' = x.CommonPropagatePath (path.lvl + 1u) {state with callSiteResults = addCallSiteResult state callSite path.state.callSiteResults
                                                                                     returnRegister = None}
                     acc || result'
                 List.fold propagateStateAfterCall false states
@@ -286,8 +294,7 @@ module public CFA =
                         let reference = Option.get state.returnRegister
                         let valueOnStack =
                             if calledMethod.DeclaringType.IsValueType then
-                                  let ref' = HeapReferenceToBoxReference reference
-                                  Memory.ReadSafe state ref'
+                                  Terms.MakeFunctionResultConstant cilStateWithoutArgs.state callSite
                             else reference
                         Some reference, {cilStateWithoutArgs with state = {state with returnRegister = None}; opStack = valueOnStack :: cilStateWithoutArgs.opStack}
                     | :? ConstructorInfo -> InstructionsSet.popOperationalStack cilStateWithoutArgs
