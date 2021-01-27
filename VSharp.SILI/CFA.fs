@@ -398,8 +398,7 @@ module public CFA =
                     if x.CommonFilterStates stateAfterCall then {resultCilState with state = stateAfterCall; ip = dst.Ip} :: acc
                     else acc
                 List.fold propagateStateAfterCall [] cilStates
-
-            let states = Memory.ComposeStates cilStateBeforeCall.state stateWithArgsOnFrameAndAllocatedType id
+            let states = Memory.ComposeStates cilStateBeforeCall.state stateWithArgsOnFrameAndAllocatedType
             match states with
             | [state] ->
                 let cilState = {cilStateBeforeCall with state = state}
@@ -602,14 +601,13 @@ module public CFA =
             | _ -> __notImplemented__()
 
         let addEdgeAndRenewQueue createEdge (d : bypassDataForEdges) (cfg : cfg) (currentTime, vertices, q, used) (cilState' : cilState) =
-//            assert(cilState'.ip = d.v)
+//            assert(cilState'.ip = d.v) TODO: #Kostya
             let s' = cilState'.state
             let dstVertex, vertices = createVertexIfNeeded cfg.methodBase s'.opStack d.v vertices
             addEdge <| createEdge cilState' dstVertex
 
             let bypassData = {d with u = d.v; srcVertex = dstVertex; uOut = d.vOut; opStack = s'.opStack
                                      allocatedTypes = s'.allocatedTypes; lengths = s'.lengths; lowerBounds = s'.lowerBounds }
-
             let newQ, newUsed =
                 match cilState'.iie with
                 | None -> updateQueue cfg d.v bypassData (q, used)
@@ -665,6 +663,8 @@ module public CFA =
                 else
                     let finishedStates, incompleteStates, erroredStates = ilInterpreter.ExecuteAllInstructions cfg initialCilState
                     let incompleteStates = List.filter (fun (cilState : cilState) -> cilState.ip <> srcVertex.Ip) incompleteStates
+                    // filtering out states, which have failed on the first instruction
+                    let incompleteStates = List.filter (fun (cilState : cilState) -> cilState.ip <> srcVertex.Ip) incompleteStates
                     let goodStates = finishedStates |> List.filter (fun (cilState : cilState) -> cilState.ip = d.v)
                     srcVertex.AddErroredStates erroredStates
 
@@ -716,8 +716,8 @@ type StepInterpreter() =
                 |> List.zip cilState.state.opStack
                 |> List.forall (fun (elementOnStateOpSTack, elementOnVertexOpStack) ->
                     if CFA.cfaBuilder.shouldRemainOnOpStack elementOnVertexOpStack then elementOnStateOpSTack = elementOnVertexOpStack else true)
-            let vertices = cfa.body.vertices.Values |> Seq.filter (fun (v : CFA.Vertex) ->
-                v.Ip = ip && v.OutgoingEdges.Count > 0 && vertexWithSameOpStack v) |> List.ofSeq
+            let howToNameIt (v : CFA.Vertex) = v.Ip = ip && v.OutgoingEdges.Count > 0 && vertexWithSameOpStack v // TODO: rename var #Kostya
+            let vertices = cfa.body.vertices.Values |> Seq.filter howToNameIt |> List.ofSeq
 
             match vertices with
             | [] -> base.EvaluateOneStep (funcId, cilState)
@@ -726,4 +726,4 @@ type StepInterpreter() =
                     acc @ edge.PropagatePath cilState
                 List.fold (fun acc (v : CFA.Vertex) -> Seq.fold propagateThroughEdge acc v.OutgoingEdges) [] vertices
         with
-        | :? InsufficientInformationException as iie -> base.EvaluateOneStep (funcId, cilState)
+        | :? InsufficientInformationException -> base.EvaluateOneStep (funcId, cilState)

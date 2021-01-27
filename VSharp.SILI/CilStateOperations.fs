@@ -33,8 +33,7 @@ module internal CilStateOperations =
                 let oldValue = if PersistentDict.contains k acc then PersistentDict.find acc k else 0u
                 PersistentDict.add k (v + oldValue) acc
             ) cilState1.level cilState2.level
-
-        let states = VSharp.Core.API.Memory.ComposeStates cilState1.state cilState2.state id
+        let states = Memory.ComposeStates cilState1.state cilState2.state
         k <| List.map (fun state -> {cilState2 with state = state; level = level}) states
 
     let incrementLevel (cilState : cilState) k =

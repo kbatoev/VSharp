@@ -48,7 +48,7 @@ type public ExplorerBase() =
                 else cilState
             let invoke (cilState, this, thisIsNotNull) = x.Invoke funcId cilState (List.map (removePCs this thisIsNotNull))
             let resultsAndStates =
-                initialStates |> List.map invoke |> List.concat |> List.map (fun cilState  -> {cilState = cilState})
+                initialStates |> List.map invoke |> List.concat |> List.map (fun cilState -> {cilState = cilState})
             CurrentlyBeingExploredLocations.Remove funcId |> ignore
             k resultsAndStates
 
