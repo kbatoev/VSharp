@@ -89,12 +89,13 @@ type public MethodInterpreter((*ilInterpreter : ILInterpreter, funcId : IFunctio
 
     member x.Add (funcId :IFunctionIdentifier) cilState = if cilState.ip <> ip.Exit then workingSet.[funcId].Add cilState
     member x.FindSimilar (funcId : IFunctionIdentifier) cilState =
-        let areCapableForMerge (st1 : cilState) (st2 : cilState) =  st1.state.opStack = st2.state.opStack && st1.ip = st2.ip
+        let areCapableForMerge (st1 : cilState) (st2 : cilState) = st1.state.opStack = st2.state.opStack && st1.ip = st2.ip
         match Seq.tryFindIndex (areCapableForMerge cilState) workingSet.[funcId] with
         | None -> None
-        | Some i -> let res = Some workingSet.[funcId].[i]
-                    workingSet.[funcId].RemoveAt i
-                    res
+        | Some i ->
+            let res = Some workingSet.[funcId].[i]
+            workingSet.[funcId].RemoveAt i
+            res
     member x.IsResultState (funcId : IFunctionIdentifier) (cilState : cilState) =
         // this is a hack, it should be gone with cfa
         let needToAddResult () = not <| Seq.exists ((=) cilState) results.[funcId]
@@ -648,9 +649,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let hasValueResults = hasValueResults |> List.map (fun cilState -> Option.get cilState.state.returnRegister, cilState)
         Cps.List.mapk boxNullable hasValueResults (List.concat >> pushResultToOperationalStack)))
 
-
     member x.Box (cfg : cfg) offset (cilState : cilState) =
-
         let t = resolveTypeFromMetadata cfg (offset + OpCodes.Box.Size)
         let termType = Types.FromDotNetType cilState.state t
         match cilState.state.opStack with
@@ -661,6 +660,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 else allocateValueTypeInHeap v cilState
             else [cilState]
         | _ -> __corruptedStack__()
+
     member private x.UnboxCommon (cilState : cilState) (obj : term) (t : System.Type) (handleRestResults : term * state -> term * state) (k : cilState list -> 'a) =
         let nonExceptionCont (cilState : cilState) res state k =
             cilState |> withState state |> withResult res |> List.singleton |> k

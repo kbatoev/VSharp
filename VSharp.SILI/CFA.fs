@@ -601,7 +601,6 @@ module public CFA =
             | _ -> __notImplemented__()
 
         let addEdgeAndRenewQueue createEdge (d : bypassDataForEdges) (cfg : cfg) (currentTime, vertices, q, used) (cilState' : cilState) =
-//            assert(cilState'.ip = d.v) TODO: #Kostya
             let s' = cilState'.state
             let dstVertex, vertices = createVertexIfNeeded cfg.methodBase s'.opStack d.v vertices
             addEdge <| createEdge cilState' dstVertex
