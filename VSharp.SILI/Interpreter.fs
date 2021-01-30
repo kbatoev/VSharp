@@ -301,11 +301,14 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let targetMethod = if genericMethodInfo.IsGenericMethod then genericMethodInfo.MakeGenericMethod(calledMethod.GetGenericArguments()) else genericMethodInfo
         if targetMethod.IsAbstract
             then x.CallAbstract (methodInterpreter.MakeMethodIdentifier targetMethod) cilState k
+            elif calledMethod = targetMethod then x.ReduceMethodBaseCall targetMethod cilState k // optimization
             else
-                // TODO: this is a hack, because we don't must have FillHoles to obtain "this" right type before allocating it on frame
+                // Getting this and arguments values by old keys
                 let this = Memory.ReadThis cilState.state calledMethod
                 let args = calledMethod.GetParameters() |> Seq.map (Memory.ReadArgument cilState.state) |> List.ofSeq
-                let cilState = popStackOf cilState
+                // Popping frame created for ancestor calledMethod
+                let state = popStackOf cilState
+                // Creating valid frame with stackKeys corresponding to actual targetMethod
                 methodInterpreter.ReduceFunctionSignature cilState.state targetMethod (Some this) (Specified args) false (fun rightState ->
                 x.ReduceMethodBaseCall targetMethod {cilState with state = rightState} k)
 
