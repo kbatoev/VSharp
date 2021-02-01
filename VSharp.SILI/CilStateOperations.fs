@@ -3,7 +3,9 @@ namespace VSharp.Interpreter.IL
 open VSharp
 open System.Text
 open System.Reflection
+open VSharp.Core
 open VSharp.Core.API
+open ipOperations
 
 type cilState =
     { ip : ip
@@ -11,6 +13,7 @@ type cilState =
       filterResult : term option
       iie : InsufficientInformationException option
       level : level
+      startingIP : ip
     }
     member x.CanBeExpanded () = x.ip.CanBeExpanded()
     member x.HasException = Option.isSome x.state.exceptionsRegister.ExceptionTerm
@@ -23,11 +26,15 @@ module internal CilStateOperations =
           filterResult = None
           iie = None
           level = PersistentDict.empty
+          startingIP = curV
         }
 
-    let makeInitialState state = makeCilState (ip.Instruction 0) state
+    let makeInitialState m state = makeCilState (instruction m 0) state
 
-    let compose (cilState1 : cilState) (cilState2 : cilState) k =
+    let isIIEState (s : cilState) = Option.isSome s.iie
+    let isError (s : cilState) = s.HasException
+
+    let compose (cilState1 : cilState) (cilState2 : cilState) =
         let level =
             PersistentDict.fold (fun (acc : level) k v ->
                 let oldValue = if PersistentDict.contains k acc then PersistentDict.find acc k else 0u
@@ -35,7 +42,7 @@ module internal CilStateOperations =
             ) cilState1.level cilState2.level
 
         let states = VSharp.Core.API.Memory.ComposeStates cilState1.state cilState2.state id
-        k <| List.map (fun state -> {cilState2 with state = state; level = level}) states
+        List.map (fun state -> {cilState2 with state = state; level = level}) states
 
     let incrementLevel (cilState : cilState) k =
         let lvl = cilState.level
@@ -49,6 +56,10 @@ module internal CilStateOperations =
     let withCurrentTime time (cilState : cilState) = {cilState with state = {cilState.state with currentTime = time}}
 
     let withOpStack opStack (cilState : cilState) = {cilState with state = {cilState.state with opStack = opStack}}
+    let withCallSiteResults callSiteResults (cilState : cilState) = {cilState with state = {cilState.state with callSiteResults = callSiteResults}}
+    let addToCallSiteResults callSite res (cilState : cilState) =
+        let s = cilState.state
+        {cilState with state = {s with callSiteResults = Map.add callSite  (Some res) s.callSiteResults}}
 
     let withState state (cilState : cilState) = {cilState with state = state}
     let changeState (cilState : cilState) state = {cilState with state = state}
@@ -118,8 +129,8 @@ module internal CilStateOperations =
             let sb = dumpSection section sb
             PersistentDict.dump d sort keyToString valueToString |> sb.AppendLine
 
-    let ipAndMethodBase2String (ip : ip, m : MethodBase) =
-        sprintf "Method: %O, ip = %O" m ip
+    let ipAndMethodBase2String (ip : ip) =
+        sprintf "Method: %O, label = %O" ip.method ip.label
 
     // TODO: print filterResult and IIE ?
     let dump (cilState : cilState) : string =

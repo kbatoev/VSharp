@@ -1,29 +1,35 @@
 namespace VSharp.Core
 
-open System
 open System.Collections.Generic
 open System.Reflection
 open VSharp
-open VSharp.Logger
 
-
-
-
-type ip =
+type label =
     | Instruction of offset
     | Exit
     | FindingHandler of offset // offset -- source of exception
+
+type ip = { label : label; method : MethodBase}
     with
     member x.CanBeExpanded () =
-        match x with
+        match x.label with
         | Instruction _ -> true
         | _ -> false
     member x.Offset () =
-        match x with
+        match x.label with
         | Instruction i -> i
         | _              -> internalfail "Could not get vertex from destination"
 
-type level = pdict<ip * MethodBase, uint>
+type level = pdict<ip, uint>
+
+module ipOperations =
+    let exit m = {label = Exit; method = m}
+    let instruction m i = {label = Instruction i; method = m}
+    let findingHandler m i = {label = FindingHandler i; method = m}
+    let withExit ip = {ip with label = Exit}
+    let withOffset offset ip = {ip with label = Instruction offset}
+    let labelOf (ip : ip) = ip.label
+    let methodOf (ip : ip) = ip.method
 
 module Level =
     let zero : level = __notImplemented__()

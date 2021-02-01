@@ -7,6 +7,7 @@ open System.Collections.Generic
 open System.Reflection.Emit
 open FSharpx.Collections
 open VSharp
+open VSharp.Core
 
 module public CFG =
     type internal graph = Dictionary<offset, List<offset>>
@@ -131,7 +132,7 @@ module public CFG =
                     if Instruction.isLeaveOpCode opCode then
                         let ehcs = methodBase.GetMethodBody().ExceptionHandlingClauses
                                    |> Seq.filter Instruction.isFinallyClause
-                                   |> Seq.filter (Instruction.shouldExecuteFinallyClause (ip.Instruction src) (ip.Instruction dst))
+                                   |> Seq.filter (Instruction.shouldExecuteFinallyClause src dst)
                                    |> Seq.sortWith (fun ehc1 ehc2 -> ehc1.HandlerOffset - ehc2.HandlerOffset)
                         let chainSequentialFinallyBlocks prevOffset (ehc : ExceptionHandlingClause) =
                             let startOffset = ehc.HandlerOffset

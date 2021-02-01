@@ -7,108 +7,44 @@ open InstructionsSet
 open CilStateOperations
 open VSharp
 open VSharp.Core
+open ipOperations
 
 type cfg = CFG.cfgData
 
-type public MethodInterpreter((*ilInterpreter : ILInterpreter, funcId : IFunctionIdentifier, cfg : cfg*)) =
+type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpreter, funcId : IFunctionIdentifier, cfg : cfg*)) =
     inherit ExplorerBase()
-    let results = Dictionary<IFunctionIdentifier, List<cilState>>()
-    let workingSet = Dictionary<IFunctionIdentifier, List<cilState>>()
-    let exceptionsSet = Dictionary<IFunctionIdentifier, List<cilState>>()
-    let incompleteStatesSet = Dictionary<IFunctionIdentifier, List<cilState>>()
-
-    let (|CilStateWithIIE|_|) (cilState : cilState) = cilState.iie
 
     static let cfgs = Dictionary<IFunctionIdentifier, cfg>()
     static let findCfg (ilmm : IFunctionIdentifier) =
         Dict.getValueOrUpdate cfgs ilmm (fun () -> CFG.build ilmm.Method)
 
-    let maxBound = 10u // 10u is caused by number of iterations for tests: Always18, FirstEvenGreaterThen7
 
-    member private x.Used k (cilState : cilState) =
-        if PersistentDict.contains k cilState.level then
-            PersistentDict.find cilState.level k >= maxBound
-        else false
 
-    member x.Interpret (funcId : IFunctionIdentifier) (start : cilState) : unit =
+    member x.Interpret (funcId : IFunctionIdentifier) (initialState : cilState) =
+        let q = IndexedQueue()
         let cfg = findCfg funcId
+        q.Add initialState
 
-        let merge (x : cilState) (y : cilState) =
-            match x.state.returnRegister, y.state.returnRegister with
-            | None, None -> Memory.Merge2States x.state y.state |> List.map (withFst None)
-            | Some t1, Some t2 -> Memory.Merge2Results (t1, x.state) (t2, y.state) |> List.map (fun (r, s) -> (Some r, s))
-            | _ -> internalfail "only one state has result"
-            |> List.map (fun (r, s) -> {x with state = {s with returnRegister = r}})
+        let step s =
+            match searcher.GetSearchDirection(s) with
+            | Step ->
+                let goodStates, incompleteStates, errors = ILInterpreter(x).ExecuteOnlyOneInstruction cfg s
+                goodStates @ incompleteStates @ errors
+            | Compose states -> List.map (compose s) states |> List.concat
+            |> List.iter (q.Add)
 
-        let rec interpret' (current : cilState) : unit =
-            if not <| x.Used (current.ip, cfg.methodBase) current then
-                let states = x.EvaluateOneStep (funcId, current)
-                states |> List.iter (fun state ->
-                    if x.IsResultState funcId state then results.[funcId].Add(state)
-                    match x.FindSimilar funcId state with
-                    | None -> x.Add funcId state
-                    | Some similar -> merge state similar |> List.iter (x.Add funcId))
-            match x.PickNext funcId with
-            | Some newSt -> interpret' newSt
-            | None -> ()
-        interpret' start
+        let rec iter s =
+            q.Remove s
+            step s
+            Option.iter iter (searcher.PickNext q)
 
-    override x.Invoke funcId cilState k =
-        workingSet.TryAdd(funcId, List<cilState>())    |> ignore
-        results.TryAdd(funcId, List<cilState>())       |> ignore
-        exceptionsSet.TryAdd(funcId, List<cilState>()) |> ignore
-        incompleteStatesSet.TryAdd(funcId, List<cilState>()) |> ignore
+        Option.iter iter (searcher.PickNext q)
+        searcher.GetResults initialState q
 
-        let cleanSets () =
-            results.[funcId] <- List()
-            incompleteStatesSet.[funcId] <- List()
-
-        let getResultsAndStates () =
-            let results = results.[funcId] |> List.ofSeq
-            let incompleteStates = incompleteStatesSet.[funcId] |> List.ofSeq
-            let errors = exceptionsSet.[funcId] |> List.ofSeq
-
-            match incompleteStates, errors, results with
-            | CilStateWithIIE iie :: _ , _, _ -> cleanSets(); raise iie
-            | _ :: _, _, _ -> __unreachable__()
-            | _, _ :: _, _ -> internalfailf "exception handling is not implemented yet"
-            | _, _, [] -> internalfailf "No states were obtained. Most likely such a situation is a bug. Check it!"
-            | _ -> results
-        let interpret (cilState : cilState) =
-            { cilState with ip = Instruction 0}
-            |> x.Interpret funcId
-            getResultsAndStates ()
-        x.InitializeStatics cilState funcId.Method.DeclaringType (List.map interpret >> List.concat >> (fun x -> cleanSets(); k x))
+    override x.Invoke funcId initialState k =
+        x.InitializeStatics initialState funcId.Method.DeclaringType (List.map (x.Interpret funcId) >> List.concat >> k)
 
     override x.MakeMethodIdentifier m = { methodBase = m } :> IMethodIdentifier
-    abstract member EvaluateOneStep : IFunctionIdentifier * cilState -> cilState list
-    default x.EvaluateOneStep (funcId : IFunctionIdentifier, cilState) =
-        let cfg = findCfg funcId
-        let ilInterpreter = ILInterpreter(x)
-        let goodStates, incompleteStates, errors = ilInterpreter.ExecuteAllInstructions cfg cilState // TODO: what about incompleteStates?
-        incompleteStatesSet.[funcId].AddRange(incompleteStates)
-        exceptionsSet.[funcId].AddRange(errors)
-        goodStates
-
-    member x.Add (funcId :IFunctionIdentifier) cilState = if cilState.ip <> ip.Exit then workingSet.[funcId].Add cilState
-    member x.FindSimilar (funcId : IFunctionIdentifier) cilState =
-        let areCapableForMerge (st1 : cilState) (st2 : cilState) =  st1.state.opStack = st2.state.opStack && st1.ip = st2.ip
-        match Seq.tryFindIndex (areCapableForMerge cilState) workingSet.[funcId] with
-        | None -> None
-        | Some i -> let res = Some workingSet.[funcId].[i]
-                    workingSet.[funcId].RemoveAt i
-                    res
-    member x.IsResultState (funcId : IFunctionIdentifier) (cilState : cilState) =
-        // this is a hack, it should be gone with cfa
-        let needToAddResult () = not <| Seq.exists ((=) cilState) results.[funcId]
-        cilState.ip = ip.Exit && cilState.state.opStack = [] && needToAddResult()
-
-    member x.PickNext (funcId : IFunctionIdentifier) =
-        if workingSet.[funcId].Count > 0 then
-            let st = workingSet.[funcId].[0]
-            workingSet.[funcId].RemoveAt 0
-            Some st
-        else None
 
 and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
     do
@@ -411,6 +347,26 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Castclass.Size)
             x.CommonCastClass (withOpStack stack cilState) term typ pushResultToOperationalStack
         | _ -> __corruptedStack__()
+
+
+    member private x.PushNewObjResultOnOpStack (cilState : cilState) reference (calledMethod : MethodBase) =
+        let valueOnStack =
+            if calledMethod.DeclaringType.IsValueType then
+                  Memory.ReadSafe cilState.state reference
+            else reference
+        pushToOpStack valueOnStack cilState
+
+    member private x.RenewCallSiteResultsAndOpStack (initialState : state) (callSite : callSite) (cilState : cilState) =
+        let cilState : cilState = cilState |> withOpStack initialState.opStack |> withCallSiteResults initialState.callSiteResults
+        let resultState = cilState.state
+        match resultState.returnRegister with
+        | Some res as rr ->
+            assert(callSite.HasNonVoidResult)
+            cilState |> pushToOpStack res |> addToCallSiteResults callSite res |> withNoResult
+        | None when callSite.opCode = OpCodes.Newobj ->
+            let reference = Memory.ReadThis initialState callSite.calledMethod
+            x.PushNewObjResultOnOpStack cilState reference callSite.calledMethod
+        | None -> cilState
 
     member x.CommonCall (calledMethodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
         let call cilState k =
@@ -1010,8 +966,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
     member x.InvalidCastException cilState = methodInterpreter.InvalidCastException cilState
     // -------------------------------- ExplorerBase operations -------------------------------------
 
-    // returns finishedStates, incompleteStates, erroredStates
-    member x.ExecuteAllInstructions (cfg : cfg) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
+    member x.ExecuteAllInstructionsForCFGEdges (cfg : cfg) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
         assert (cilState.ip.CanBeExpanded())
         let startingOffset = cilState.ip.Offset ()
         let endOffset =
@@ -1026,8 +981,19 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             if cfg.sortedOffsets.[index] = lastOffset then cfg.ilBytes.Length
             else cfg.sortedOffsets.[index + 1]
 
-        let isIpOfCurrentBasicBlock offset = startingOffset <= offset && offset < endOffset
+        let isIpOfCurrentBasicBlock (ip : ip) =
+            match ip.label with
+            | Instruction i when ip.method = cfg.methodBase -> startingOffset <= i && i < endOffset
+            | _ -> false
+        x.ExecuteAllInstructionsWhile isIpOfCurrentBasicBlock cfg cilState
 
+    member x.ExecuteOnlyOneInstruction (cfg : cfg) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
+        x.ExecuteAllInstructionsWhile (always false) cfg cilState
+
+    // returns finishedStates, incompleteStates, erroredStates
+    member x.ExecuteAllInstructionsWhile (condition : ip -> bool) (cfg : cfg) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
+        let startingOffset = cilState.ip.Offset ()
+        let m = cfg.methodBase
         let rec executeAllInstructions (finishedStates, incompleteStates, errors) (offset : offset) cilState =
             try
                 let allStates = x.ExecuteInstruction cfg offset {cilState with iie = None}
@@ -1035,13 +1001,13 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 let errors = errors @ List.map (fun (erroredOffset, (cilState : cilState)) -> {cilState with ip = erroredOffset}) newErrors
 
                 match goodStates with
-                | list when List.forall (fst >> (=) ip.Exit) list ->
-                    (List.map (fun (_, cilState : cilState) -> {cilState with ip = ip.Exit})) list @ finishedStates, incompleteStates, errors
-                | (Instruction nextOffset as nextIp, _)::xs as list when isIpOfCurrentBasicBlock nextOffset && List.forall (fst >> (=) nextIp) xs ->
-                    List.fold (fun acc (_, cilState)-> executeAllInstructions acc nextOffset cilState) (finishedStates, incompleteStates, errors) list
+                | list when List.forall (fst >> (=) (exit m)) list ->
+                    (List.map (fun (_, cilState : cilState) -> {cilState with ip = exit m})) list @ finishedStates, incompleteStates, errors
+                | (nextIp,_) :: xs as list when condition nextIp && List.forall (fst >> (=) nextIp) xs ->
+                    List.fold (fun acc (_, cilState)-> executeAllInstructions acc (nextIp.Offset()) cilState) (finishedStates, incompleteStates, errors) list
                 | list -> List.map (fun (ip, cilState) -> {cilState with ip = ip}) list @ finishedStates, incompleteStates, errors
             with
-            | :? InsufficientInformationException as iie -> finishedStates, {cilState with iie = Some iie; ip = Instruction offset} :: incompleteStates, errors
+            | :? InsufficientInformationException as iie -> finishedStates, {cilState with iie = Some iie; ip = instruction m offset} :: incompleteStates, errors
         executeAllInstructions ([],[],[]) startingOffset cilState
 
     member x.IncrementLevelIfNeeded (cfg : cfg) (offset : offset) (cilState : cilState) : cilState =
@@ -1051,22 +1017,23 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 cfg.reverseGraph.[offset] |> Seq.exists (fun w -> cfg.dfsOut.[w] <= t1)
             else false
         if offset = 0 || isRecursiveVertex offset then
-            incrementLevel cilState (Instruction offset, cfg.methodBase)
+            incrementLevel cilState (instruction cfg.methodBase offset)
         else cilState
 
     member x.ExecuteInstruction (cfg : cfg) (offset : int) (cilState : cilState) =
+        let m = cfg.methodBase
         let opCode = Instruction.parseInstruction cfg.ilBytes offset
         let newOffsets : ip list =
             if Instruction.isLeaveOpCode opCode || opCode = OpCodes.Endfinally
-            then cfg.graph.[offset] |> Seq.map Instruction |> List.ofSeq
+            then cfg.graph.[offset] |> Seq.map (instruction m) |> List.ofSeq
             else
                 let nextTargets = Instruction.findNextInstructionOffsetAndEdges opCode cfg.ilBytes offset
                 match nextTargets with
                 | UnconditionalBranch nextInstruction
-                | FallThrough nextInstruction -> [Instruction nextInstruction]
-                | Return -> [Exit]
-                | ExceptionMechanism -> [FindingHandler offset]
-                | ConditionalBranch targets -> targets |> List.map Instruction
+                | FallThrough nextInstruction -> instruction m nextInstruction :: []
+                | Return -> exit m :: []
+                | ExceptionMechanism -> findingHandler m offset :: []
+                | ConditionalBranch targets -> targets |> List.map (instruction m)
         let newSts = opcode2Function.[hashFunction opCode] cfg offset newOffsets cilState
 
         newSts |> List.map (fun (d, cilState : cilState) -> d, x.IncrementLevelIfNeeded cfg offset cilState)

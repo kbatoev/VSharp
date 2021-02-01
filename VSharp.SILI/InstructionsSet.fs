@@ -105,6 +105,7 @@ module internal TypeUtils =
 
 module internal InstructionsSet =
     open CilStateOperations
+    open ipOperations
 
     let __corruptedStack__() = raise (InvalidProgramException())
 
@@ -350,7 +351,7 @@ module internal InstructionsSet =
     let brfalse = brcommon id
     let brtrue = brcommon (!!)
     let applyAndBranch errorStr additionalFunction brtrueFunction (cfg : cfgData) offset newOffsets (cilState : cilState) =
-        match additionalFunction cfg offset [Instruction offset] cilState with
+        match additionalFunction cfg offset [instruction cfg.methodBase offset] cilState with
         | [_, st] -> brtrueFunction newOffsets st
         | _ -> internalfail errorStr
     let compare op operand1Transformation operand2Transformation (cilState : cilState) =

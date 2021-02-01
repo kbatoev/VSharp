@@ -34,7 +34,7 @@ type public ExplorerBase() =
         | :? IMethodIdentifier as m ->
             assert(m.IsStatic)
             let state = Memory.InitializeStaticMembers Memory.EmptyState (Types.FromDotNetType Memory.EmptyState m.DeclaringType)
-            let initialState = CilStateOperations.makeInitialState state
+            let initialState = CilStateOperations.makeInitialState m.Method state
             x.Invoke id initialState (List.map (fun cilState -> { cilState = cilState }) >> List.toSeq >> k)
         | _ -> internalfailf "unexpected entry point: expected regular method, but got %O" id
 
@@ -179,7 +179,7 @@ type public ExplorerBase() =
         x.ReduceFunctionSignature state funcId.Method this Unspecified true (fun state ->  state, this, thisIsNotNull)
     member x.FormInitialState (funcId : IFunctionIdentifier) : (cilState * term option * term) list =
         let state, this, thisIsNotNull = x.FormInitialStateWithoutStatics funcId
-        let cilState = CilStateOperations.makeInitialState state
+        let cilState = CilStateOperations.makeInitialState funcId.Method state
         x.InitializeStatics cilState funcId.Method.DeclaringType (List.map (fun cilState -> cilState, this, thisIsNotNull(*, isMethodOfStruct*)))
 
     abstract CreateInstance : System.Type -> term list -> cilState -> cilState list
@@ -266,7 +266,7 @@ type public ExplorerBase() =
         x.Explore newFuncId (Seq.map (fun summary ->
             Logger.trace "ExploreAndCompose: Original CodeLoc = %O New CodeLoc = %O\ngot summary state = %s" funcId newFuncId (CilStateOperations.dump summary.cilState)
             Logger.trace "ExploreAndCompose: Left state = %s" (CilStateOperations.dump cilState)
-            let resultStates = CilStateOperations.compose cilState summary.cilState id
+            let resultStates = CilStateOperations.compose cilState summary.cilState
             List.iter (CilStateOperations.dump >> (Logger.trace "ExploreAndCompose: Result after composition %s")) resultStates
             resultStates) >> List.ofSeq >> List.concat >> k)
 
