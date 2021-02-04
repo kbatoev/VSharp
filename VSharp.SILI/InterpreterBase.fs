@@ -178,7 +178,7 @@ type public ExplorerBase() =
             | _ -> __notImplemented__()
         let thisIsNotNull = if Option.isSome this then !!(IsNullReference(Option.get this)) else Nop
         let state = if Option.isSome this && thisIsNotNull <> True then WithPathCondition state thisIsNotNull else state
-        x.ReduceFunctionSignature state funcId.Method this Unspecified true (fun state ->  state, this, thisIsNotNull)
+        x.ReduceFunctionSignature state funcId.Method this Unspecified true (fun state -> state, this, thisIsNotNull)
     member x.FormInitialState (funcId : IFunctionIdentifier) : (cilState * term option * term) list =
         let state, this, thisIsNotNull = x.FormInitialStateWithoutStatics funcId
         let cilState = CilStateOperations.makeInitialState state
@@ -237,7 +237,7 @@ type public ExplorerBase() =
             let methodBase = methodId.Method
             if not <| Reflection.IsGenericOrDeclaredInGenericType methodBase then methodId :> IFunctionIdentifier, state, false
             else
-                let fullyGenericMethod, genericArgs, genericDefs = Reflection.GetGenericArgsAndDefs methodBase
+                let fullyGenericMethod, genericArgs, genericDefs = Reflection.generalizeMethodBase methodBase
                 let genericArgs = genericArgs |> Seq.map (Types.FromDotNetType state) |> List.ofSeq
                 let genericDefs = genericDefs |> Seq.map Id |> List.ofSeq
                 if List.isEmpty genericDefs then methodId :> IFunctionIdentifier, state, false
@@ -271,4 +271,3 @@ type public ExplorerBase() =
     abstract member ReproduceEffect : IFunctionIdentifier -> cilState -> (cilState list -> 'a) -> 'a
     default x.ReproduceEffect funcId state k =
             x.ExploreAndCompose funcId state k
-
