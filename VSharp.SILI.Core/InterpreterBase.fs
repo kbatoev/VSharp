@@ -106,10 +106,12 @@ type public ExplorerBase() =
             | None -> parameters
         Memory.NewStackFrame state funcId (parametersAndThis @ locals) isEffect |> k // TODO: need to change FQL in "parametersAndThis" before adding it to stack frames (ClassesSimplePropertyAccess.TestProperty1) #FQLsNotEqual
 
-    member x.ReduceConcreteCall (methodBase : MethodBase) state k =
+    member x.ReduceConcreteCall (methodBase : MethodBase) initialState k =
         let methodId = x.MakeMethodIdentifier methodBase
         let invoke state k = x.Invoke methodId state k
-        x.ReduceFunction state methodId invoke k
+        let state = { initialState with opStack = [] }
+        let restoreOpStack state = { state with opStack = initialState.opStack }
+        x.ReduceFunction state methodId invoke (List.map (fun (t, s) -> t, restoreOpStack s) >> k)
 
     member private x.InitStaticFieldWithDefaultValue state (f : FieldInfo) =
         assert(f.IsStatic)

@@ -519,10 +519,11 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             if Types.IsValueType constructedTermType then valueTypeCase state
             else referenceTypeCase state
         let nonDelegateCase (state : state) =
-            methodInterpreter.InitializeStatics state typ (List.map (fun state ->
+            let states = if not isCallNeeded then [state] else methodInterpreter.InitializeStatics state typ id
+            List.map (fun state ->
             if typ.IsArray && constructorInfo.GetMethodBody() = null
-                then x.ReduceArrayCreation typ state args id
-                else blockCase state) >> List.concat)
+            then x.ReduceArrayCreation typ state args id
+            else blockCase state) states |> List.concat
         if Reflection.IsDelegateConstructor constructorInfo
             then x.CommonCreateDelegate constructorInfo state args k
             else nonDelegateCase state |> k
