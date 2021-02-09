@@ -561,10 +561,10 @@ module public CFA =
                     let reference = Option.get cilState.state.returnRegister
                     let cilState = pushNewObjResultOnOpStack cilState reference calledMethod
                     Some reference, withNoResult cilState
-                | :? ConstructorInfo -> InstructionsSet.popOperationalStack cilStateWithoutArgs
+                | :? ConstructorInfo -> InstructionsSet.popOperationalStack cilStateWithoutArgs |> mapfst Some
                 | :? MethodInfo as methodInfo when not calledMethod.IsStatic ->
                     let this, cilState = InstructionsSet.popOperationalStack cilStateWithoutArgs
-                    this, pushFunctionResultOnOpStackIfNeeded cilState methodInfo
+                    Some this, pushFunctionResultOnOpStackIfNeeded cilState methodInfo
                 | :? MethodInfo as methodInfo ->
                     None, pushFunctionResultOnOpStackIfNeeded cilStateWithoutArgs methodInfo
                 | _ -> internalfailf "unknown methodBase %O" calledMethod

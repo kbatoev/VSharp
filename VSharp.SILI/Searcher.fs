@@ -41,7 +41,7 @@ type DummySearcher() =
     inherit ISearcher() with
         let maxBound = 10u // 10u is caused by number of iterations for tests: Always18, FirstEvenGreaterThen7
         member private x.Used (cilState : cilState) =
-            PersistentDict.contains cilState.ip cilState.level && PersistentDict.find cilState.level cilState.ip  >= maxBound
+            PersistentDict.contains cilState.ip cilState.level && PersistentDict.find cilState.level cilState.ip >= maxBound
         override x.GetSearchDirection _ = Step
         override x.PickNext q =
             let canBePropagated (s : cilState) = not (isIIEState s || isError s) && s.CanBeExpanded() && not <| x.Used s

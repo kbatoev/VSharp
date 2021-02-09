@@ -14,6 +14,7 @@ type cilState =
       iie : InsufficientInformationException option
       level : level
       startingIP : ip
+      returnPoints : ip list
     }
     member x.CanBeExpanded () = x.ip.CanBeExpanded()
     member x.HasException = Option.isSome x.state.exceptionsRegister.ExceptionTerm
@@ -27,6 +28,7 @@ module internal CilStateOperations =
           iie = None
           level = PersistentDict.empty
           startingIP = curV
+          returnPoints = []
         }
 
     let makeInitialState m state = makeCilState (instruction m 0) state
@@ -68,6 +70,7 @@ module internal CilStateOperations =
     let withResultState result (state : state) = {state with returnRegister = Some result}
     let withIp ip (cilState : cilState) = {cilState with ip = ip}
     let pushToOpStack v (cilState : cilState) = {cilState with state = {cilState.state with opStack = v :: cilState.state.opStack}}
+    let addReturnPoint p (cilState : cilState) = {cilState with returnPoints = p :: cilState.returnPoints}
     let withException exc (cilState : cilState) = {cilState with state = {cilState.state with exceptionsRegister = exc}}
 
 

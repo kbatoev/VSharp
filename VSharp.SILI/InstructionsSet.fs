@@ -176,11 +176,12 @@ module internal InstructionsSet =
         else term
     let castUnchecked typ term (state : state) : term =
         let term = castReferenceToPointerIfNeeded term typ state
-        Types.Cast term typ
+        if API.Terms.TypeOf term = typ then term
+        else Types.Cast term typ
     let popOperationalStack (cilState : cilState) =
         match cilState.state.opStack with
-        | t :: ts -> Some t, {cilState with state = {cilState.state with opStack = ts}}
-        | [] -> None, cilState
+        | t :: ts -> t, withOpStack ts cilState
+        | [] -> __unreachable__()
     let ldc numberCreator t (cfg : cfgData) shiftedOffset (cilState : cilState) =
         let num = numberCreator cfg.ilBytes shiftedOffset
         let termType = Types.FromDotNetType cilState.state t
@@ -275,24 +276,24 @@ module internal InstructionsSet =
         | _ -> __corruptedStack__()
 
     let ret (cfg : cfgData) _ (cilState : cilState) =
-        let cilState = withCurrentTime [] cilState
         let resultTyp =
             match cfg.methodBase with
             | :? ConstructorInfo -> Void
             | :? MethodInfo as mi -> mi.ReturnType |> Types.FromDotNetType cilState.state
             | _ -> __notImplemented__()
-        let term, cilState = popOperationalStack cilState
-        let typ =
-            match term with
-            | Some t -> TypeOf t
-            | None -> Void
-        match term, resultTyp with
-        | None, Void -> cilState :: []
-        | Some t, _ when typ = resultTyp -> cilState |> withResult t |> List.singleton // TODO: [simplification] remove this heuristics
-        | Some t, _ ->
-            let t = castUnchecked resultTyp t cilState.state
-            cilState |> withResult t |> List.singleton
-        | _ -> __unreachable__()
+        let cilState =
+            if resultTyp = Void then cilState
+            else
+                let res, cilState = popOperationalStack cilState
+                let castedResult = castUnchecked resultTyp res cilState.state
+                let action = if List.isEmpty cilState.returnPoints then withResult else pushToOpStack
+                action castedResult cilState
+
+        match cilState.returnPoints with
+        | [] -> withCurrentTime [] cilState
+        | p :: ps -> {cilState with ip = p; returnPoints = ps}
+        |> List.singleton
+
     let transform2BooleanTerm pc (term : term) =
         let check term =
             match TypeOf term with
@@ -560,6 +561,12 @@ module internal InstructionsSet =
         assert (List.length newOffsets = 1)
         let newOffset = List.head newOffsets
         let cilStates = op cfgData offset cilState
+        List.map (withFst newOffset) cilStates
+
+    let zipWithOneOffsetForCall op cfgData offset newOffsets cilState =
+        assert (List.length newOffsets = 1)
+        let newOffset = List.head newOffsets
+        let cilStates = op cfgData offset newOffset cilState
         List.map (withFst newOffset) cilStates
 
     let opcode2Function : (cfgData -> offset -> ip list -> cilState -> (ip * cilState) list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")

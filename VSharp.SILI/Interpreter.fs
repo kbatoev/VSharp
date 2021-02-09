@@ -48,9 +48,9 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
 
 and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
     do
-        opcode2Function.[hashFunction OpCodes.Call]           <- zipWithOneOffset <| this.Call
-        opcode2Function.[hashFunction OpCodes.Callvirt]       <- zipWithOneOffset <| this.CallVirt
-        opcode2Function.[hashFunction OpCodes.Newobj]         <- zipWithOneOffset <| this.NewObj
+        opcode2Function.[hashFunction OpCodes.Call]           <- zipWithOneOffsetForCall <| this.Call
+        opcode2Function.[hashFunction OpCodes.Callvirt]       <- zipWithOneOffsetForCall <| this.CallVirt
+        opcode2Function.[hashFunction OpCodes.Newobj]         <- zipWithOneOffsetForCall <| this.NewObj
         opcode2Function.[hashFunction OpCodes.Ldsfld]         <- zipWithOneOffset <| this.LdsFld false
         opcode2Function.[hashFunction OpCodes.Ldsflda]        <- zipWithOneOffset <| this.LdsFld true
         opcode2Function.[hashFunction OpCodes.Stsfld]         <- zipWithOneOffset <| this.StsFld
@@ -174,13 +174,9 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             let cilResults = List.map (fun state -> withState state cilState) results
             k cilResults) k) id
         | _ -> internalfail "unexpected number of arguments"
-    member private x.ReduceMethodBaseCall (methodBase : MethodBase) (initialCilState : cilState) (k : cilState list -> 'a) =
-        let initialState = initialCilState.state
-        let state = { initialState with opStack = [] }
-        let cilState = {initialCilState with state = state}
-        let k =
-            let restoreOpStack = withOpStack initialState.opStack
-            List.map (popStackOf >> restoreOpStack) >> k
+    member private x.ReduceMethodBaseCall (methodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
+        let state = cilState.state
+        let k = List.map popStackOf >> k
         let thisOption = if methodBase.IsStatic then None else Some <| Memory.ReadThis state methodBase
         let args = methodBase.GetParameters() |> Seq.map (Memory.ReadArgument state) |> List.ofSeq
         let fullMethodName = Reflection.GetFullMethodName methodBase
@@ -377,10 +373,12 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         | false ->
             let this = Memory.ReadThis cilState.state calledMethodBase
             x.NpeOrInvokeStatementCIL cilState this call k
-    member x.Call (cfg : cfg) offset (cilState : cilState) =
+    member x.Call (cfg : cfg) offset newOffset (cilState : cilState) =
         let calledMethodBase = resolveMethodFromMetadata cfg (offset + OpCodes.Call.Size)
         let args, cilState = retrieveActualParameters calledMethodBase cilState
-        let this, cilState = if not calledMethodBase.IsStatic then popOperationalStack cilState else None, cilState
+        let this, cilState = if calledMethodBase.IsStatic then None, cilState
+                             else popOperationalStack cilState |> mapfst Some
+        let cilState = addReturnPoint newOffset cilState
         methodInterpreter.ReduceFunctionSignature cilState.state calledMethodBase this (Specified args) false (fun state ->
         x.CommonCall calledMethodBase (withState state cilState) pushResultToOperationalStack)
      member x.CommonCallVirt (ancestorMethodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
@@ -395,10 +393,11 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             else
                 x.ReduceMethodBaseCall ancestorMethodBase cilState id) >> List.concat >> k)
         x.NpeOrInvokeStatementCIL cilState this call k
-    member x.CallVirt (cfg : cfg) offset (cilState : cilState) =
+    member x.CallVirt (cfg : cfg) offset newOffset (cilState : cilState) =
         let ancestorMethodBase = resolveMethodFromMetadata cfg (offset + OpCodes.Callvirt.Size)
         let args, cilState = retrieveActualParameters ancestorMethodBase cilState
-        let this, cilState = popOperationalStack cilState |> mapfst Option.get
+        let this, cilState = popOperationalStack cilState
+        let cilState = addReturnPoint newOffset cilState
         // NOTE: It is not quite strict to ReduceFunctionSignature here because, but it does not matter because signatures of virtual methods are the same
         methodInterpreter.ReduceFunctionSignature cilState.state ancestorMethodBase (Some this) (Specified args) false (fun state ->
         x.CommonCallVirt ancestorMethodBase (withState state cilState) pushResultToOperationalStack)
@@ -459,10 +458,11 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             then x.CommonCreateDelegate constructorInfo cilState args k
             else nonDelegateCase cilState |> k
 
-    member x.NewObj (cfg : cfg) offset (cilState : cilState) : cilState list =
+    member x.NewObj (cfg : cfg) offset newOffset (cilState : cilState) : cilState list =
         let constructorInfo = resolveMethodFromMetadata cfg (offset + OpCodes.Newobj.Size) :?> ConstructorInfo
         assert (constructorInfo.IsConstructor)
         let args, cilState = retrieveActualParameters constructorInfo cilState
+        let cilState = addReturnPoint newOffset cilState
         x.CommonNewObj true constructorInfo cilState args pushResultToOperationalStack
 
     member x.LdsFld addressNeeded (cfg : cfg) offset (cilState : cilState) =

@@ -58,7 +58,8 @@ type public ExplorerBase() =
                 x.ReproduceEffect id cilState k
             with
             | :? InsufficientInformationException ->
-                body cilState (List.map (CilStateOperations.withCurrentTime cilState.state.currentTime) >> k)
+//                body cilState (List.map (CilStateOperations.withCurrentTime cilState.state.currentTime) >> k)
+                body cilState k
         else
             /// explicitly unrolling
             body cilState k
