@@ -274,7 +274,7 @@ module internal InstructionsSet =
         | _ -> __corruptedStack__()
 
     let ret (cfg : cfgData) _ (cilState : cilState) =
-        let cilState = withCurrentTime [] cilState
+//        let cilState = withCurrentTime [] cilState
         let resultTyp =
             match cfg.methodBase with
             | :? ConstructorInfo -> Void

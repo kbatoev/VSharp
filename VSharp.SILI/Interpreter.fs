@@ -236,13 +236,9 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             let cilResults = List.map (fun state -> withState state cilState) results
             k cilResults) k) id
         | _ -> internalfail "unexpected number of arguments"
-    member private x.ReduceMethodBaseCall (methodBase : MethodBase) (initialCilState : cilState) (k : cilState list -> 'a) =
-        let initialState = initialCilState.state
-        let state = { initialState with opStack = [] }
-        let cilState = {initialCilState with state = state}
-        let k =
-            let restoreOpStack = withOpStack initialState.opStack
-            List.map (popStackOf >> restoreOpStack) >> k
+    member private x.ReduceMethodBaseCall (methodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
+        let state = cilState.state
+        let k = List.map popStackOf >> k
         let thisOption = if methodBase.IsStatic then None else Some <| Memory.ReadThis state methodBase
         let args = methodBase.GetParameters() |> Seq.map (Memory.ReadArgument state) |> List.ofSeq
         let fullMethodName = Reflection.GetFullMethodName methodBase
@@ -258,19 +254,17 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         elif Map.containsKey fullMethodName Loader.concreteExternalImplementations then
             // TODO: check that all parameters were specified
             let methodInfo = Loader.concreteExternalImplementations.[fullMethodName]
-            let methodId = methodInterpreter.MakeMethodIdentifier methodInfo
             let thisOption, args =
                 match thisOption, methodInfo.IsStatic with
                 | Some this, true -> None, this :: args
                 | None, false -> internalfail "Calling non-static concrete implementation for static method"
                 | _ -> thisOption, args
             let state = methodInterpreter.ReduceFunctionSignature state methodInfo thisOption (Specified args) false id
-            let invoke cilState k = methodInterpreter.Invoke methodId cilState k
-            methodInterpreter.ReduceFunction {cilState with state = state} methodId invoke (List.map popStackOf >> k)
+            methodInterpreter.ReduceFunction {cilState with state = state} methodInfo invoke (List.map popStackOf >> k)
         elif int (methodBase.GetMethodImplementationFlags() &&& MethodImplAttributes.InternalCall) <> 0 then
             internalfailf "new extern method: %s" fullMethodName
         elif methodBase.GetMethodBody() <> null then
-            methodInterpreter.ReduceConcreteCall methodBase cilState k
+            methodInterpreter.ReduceFunction methodBase cilState k
         else
             internalfail "nonextern method without body!"
 
@@ -542,7 +536,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             let loadWhenTargetIsNotNull (cilState : cilState) k =
                 let k1 value = pushToOpStack value cilState |> List.singleton |> k
                 let fieldId = Reflection.wrapField fieldInfo
-                if addressNeeded then Memory.ReferenceField target fieldId |> k1
+                if addressNeeded then Memory.ReferenceField cilState.state target fieldId |> k1
                 else Memory.ReadField cilState.state target fieldId |> k1
             x.NpeOrInvokeStatementCIL (withOpStack stack cilState) target loadWhenTargetIsNotNull id
         | _ -> __corruptedStack__()
@@ -554,7 +548,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             let storeWhenTargetIsNotNull (cilState : cilState) k =
                 let fieldType = fieldInfo.FieldType |> Types.FromDotNetType cilState.state
                 let fieldId = Reflection.wrapField fieldInfo
-                let reference = Memory.ReferenceField targetRef fieldId
+                let reference = Memory.ReferenceField cilState.state targetRef fieldId
                 let value = castUnchecked fieldType value cilState.state
                 Memory.WriteSafe cilState.state reference value |> List.map (changeState cilState) |> k
             x.NpeOrInvokeStatementCIL (withOpStack stack cilState) targetRef storeWhenTargetIsNotNull id

@@ -606,12 +606,12 @@ module public CFA =
 
         let private isConcreteHeapRef (term : term) =
             match term.term with
-            | HeapRef (addr, _) -> isConcreteHeapAddress addr
+            | HeapRef(addr, _) -> isConcreteHeapAddress addr
             | _ -> false
 
         let private getTermConcreteHeapAddress (term : term) =
             match term.term with
-            | HeapRef (ConcreteHeapAddress addr, _) -> addr
+            | HeapRef(ConcreteHeapAddress addr, _) -> addr
             | _ -> __unreachable__()
 
         let private prepareStateWithConcreteInfo (s : state) (d : bypassDataForEdges) =
