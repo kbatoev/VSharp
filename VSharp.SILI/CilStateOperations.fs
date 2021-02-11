@@ -14,7 +14,8 @@ type cilState =
       iie : InsufficientInformationException option
       level : level
       startingIP : ip
-      returnPoints : ip list
+      returnPoints : (ip * callSite) list // next ip and a callsite of a caller
+      opStackOverLapping : int * int      // maximum and currentValue
     }
     member x.CanBeExpanded () = x.ip.CanBeExpanded()
     member x.HasException = Option.isSome x.state.exceptionsRegister.ExceptionTerm
@@ -29,6 +30,7 @@ module internal CilStateOperations =
           level = PersistentDict.empty
           startingIP = curV
           returnPoints = []
+          opStackOverLapping = 0,0
         }
 
     let makeInitialState m state = makeCilState (instruction m 0) state
@@ -43,8 +45,12 @@ module internal CilStateOperations =
                 PersistentDict.add k (v + oldValue) acc
             ) cilState1.level cilState2.level
 
-        let states = VSharp.Core.API.Memory.ComposeStates cilState1.state cilState2.state id
-        List.map (fun state -> {cilState2 with state = state; level = level}) states
+        let states = Memory.ComposeStates cilState1.state cilState2.state id
+        let leftOpStack = List.skip (-1 * fst cilState2.opStackOverLapping) cilState1.state.opStack
+        let makeResultState (state : state) =
+            let state' = {state with opStack = leftOpStack @ state.opStack}
+            {cilState2 with state = state'; level = level}
+        List.map makeResultState states
 
     let incrementLevel (cilState : cilState) k =
         let lvl = cilState.level
@@ -61,7 +67,7 @@ module internal CilStateOperations =
     let withCallSiteResults callSiteResults (cilState : cilState) = {cilState with state = {cilState.state with callSiteResults = callSiteResults}}
     let addToCallSiteResults callSite res (cilState : cilState) =
         let s = cilState.state
-        {cilState with state = {s with callSiteResults = Map.add callSite  (Some res) s.callSiteResults}}
+        {cilState with state = {s with callSiteResults = Map.add callSite res s.callSiteResults}}
 
     let withState state (cilState : cilState) = {cilState with state = state}
     let changeState (cilState : cilState) state = {cilState with state = state}
@@ -76,7 +82,8 @@ module internal CilStateOperations =
 
     // ------------------------------- Helper functions for cilState -------------------------------
 
-
+    let createCallSite source called offset opCode =
+        {sourceMethod = source; calledMethod = called; offset = offset; opCode = opCode}
 
     let pushResultOnOpStack (cilState : cilState) (res, state) =
         if res <> Terms.Nop then cilState |> withState state |> pushToOpStack res

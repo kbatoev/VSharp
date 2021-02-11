@@ -969,6 +969,7 @@ module internal Memory =
             // Hacking return register to propagate starting and current time of state' into composeTime
             let state = {state with returnRegister = Some(Concrete (state'.startingTime, state'.currentTime) (fromDotNetType typeof<vectorTime * vectorTime>))}
             let pc = PC.mapPC (fillHoles state) state'.pc |> PC.union state.pc
+            // Note: this is not final opStack of resulting cilState, here we forget left state's opStack at all
             let opStack = composeOpStacksOf state state'.opStack
             let returnRegister = Option.map (fillHoles state) state'.returnRegister
             let exceptionRegister = composeRaisedExceptionsOf state state.exceptionsRegister

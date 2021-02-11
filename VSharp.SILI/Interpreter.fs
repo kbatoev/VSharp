@@ -175,38 +175,34 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             k cilResults) k) id
         | _ -> internalfail "unexpected number of arguments"
     member private x.ReduceMethodBaseCall (methodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
-        let state = cilState.state
-        let k = List.map popStackOf >> k
-        let thisOption = if methodBase.IsStatic then None else Some <| Memory.ReadThis state methodBase
-        let args = methodBase.GetParameters() |> Seq.map (Memory.ReadArgument state) |> List.ofSeq
+        let s = cilState.state
+        let thisOption = if methodBase.IsStatic then None else Some <| Memory.ReadThis s methodBase
+        let args = methodBase.GetParameters() |> Seq.map (Memory.ReadArgument s) |> List.ofSeq
         let fullMethodName = Reflection.GetFullMethodName methodBase
         let (&&&) = Microsoft.FSharp.Core.Operators.(&&&)
         if Map.containsKey fullMethodName internalImplementations then
             (internalImplementations.[fullMethodName] cilState thisOption args) |> k
         elif Map.containsKey fullMethodName Loader.internalImplementations then
-            let thisAndArguments : term list =
-                match thisOption with
-                | None -> args
-                | Some this -> this :: args
-            internalCall Loader.internalImplementations.[fullMethodName] thisAndArguments state (List.map (changeState cilState) >> k)
+            let thisAndArguments = optCons args thisOption
+            internalCall Loader.internalImplementations.[fullMethodName] thisAndArguments s (List.map (changeState cilState) >> k)
         elif Map.containsKey fullMethodName Loader.concreteExternalImplementations then
             // TODO: check that all parameters were specified
             let methodInfo = Loader.concreteExternalImplementations.[fullMethodName]
-            let methodId = methodInterpreter.MakeMethodIdentifier methodInfo
             let thisOption, args =
                 match thisOption, methodInfo.IsStatic with
                 | Some this, true -> None, this :: args
                 | None, false -> internalfail "Calling non-static concrete implementation for static method"
                 | _ -> thisOption, args
-            let state = methodInterpreter.ReduceFunctionSignature state methodInfo thisOption (Specified args) false id
-            let invoke cilState k = methodInterpreter.Invoke methodId cilState k
-            methodInterpreter.ReduceFunction {cilState with state = state} methodId invoke (List.map popStackOf >> k)
+            let s = Memory.PopStack s
+            let state = methodInterpreter.ReduceFunctionSignature s methodInfo thisOption (Specified args) false id
+            // callsite of cilState is explicitly untouched
+            cilState |> withState state |> withIp (instruction methodInfo 0) |> List.singleton |> k
         elif int (methodBase.GetMethodImplementationFlags() &&& MethodImplAttributes.InternalCall) <> 0 then
             internalfailf "new extern method: %s" fullMethodName
         elif methodBase.GetMethodBody() <> null then
-            methodInterpreter.ReduceConcreteCall methodBase cilState k
+            cilState |> withIp (instruction methodBase 0) |> List.singleton |> k
         else
-            internalfail "nonextern method without body!"
+            internalfail "non-extern method without body!"
 
     member x.CallMethodFromTermType (cilState : cilState) (*this parameters *) termType (calledMethod : MethodInfo) (k : cilState list -> 'a) =
         let t = termType |> Types.ToDotNetType
@@ -352,17 +348,17 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             else reference
         pushToOpStack valueOnStack cilState
 
-    member private x.RenewCallSiteResultsAndOpStack (initialState : state) (callSite : callSite) (cilState : cilState) =
-        let cilState : cilState = cilState |> withOpStack initialState.opStack |> withCallSiteResults initialState.callSiteResults
-        let resultState = cilState.state
-        match resultState.returnRegister with
-        | Some res as rr ->
-            assert(callSite.HasNonVoidResult)
-            cilState |> pushToOpStack res |> addToCallSiteResults callSite res |> withNoResult
-        | None when callSite.opCode = OpCodes.Newobj ->
-            let reference = Memory.ReadThis initialState callSite.calledMethod
-            x.PushNewObjResultOnOpStack cilState reference callSite.calledMethod
-        | None -> cilState
+//    member private x.RenewCallSiteResultsAndOpStack (initialState : state) (callSite : callSite) (cilState : cilState) =
+//        let cilState : cilState = cilState |> withOpStack initialState.opStack |> withCallSiteResults initialState.callSiteResults
+//        let resultState = cilState.state
+//        match resultState.returnRegister with
+//        | Some res as rr ->
+//            assert(callSite.HasNonVoidResult)
+//            cilState |> pushToOpStack res |> addToCallSiteResults callSite res |> withNoResult
+//        | None when callSite.opCode = OpCodes.Newobj ->
+//            let reference = Memory.ReadThis initialState callSite.calledMethod
+//            x.PushNewObjResultOnOpStack cilState reference callSite.calledMethod
+//        | None -> cilState
 
     member x.CommonCall (calledMethodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
         let call cilState k =
@@ -373,14 +369,19 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         | false ->
             let this = Memory.ReadThis cilState.state calledMethodBase
             x.NpeOrInvokeStatementCIL cilState this call k
-    member x.Call (cfg : cfg) offset newOffset (cilState : cilState) =
+    member x.RetrieveCalledMethodAndArgs (cfg : cfg) offset opCode newIp (cilState : cilState) =
         let calledMethodBase = resolveMethodFromMetadata cfg (offset + OpCodes.Call.Size)
         let args, cilState = retrieveActualParameters calledMethodBase cilState
-        let this, cilState = if calledMethodBase.IsStatic then None, cilState
+        let this, cilState = if calledMethodBase.IsStatic || opCode = OpCodes.Newobj then None, cilState
                              else popOperationalStack cilState |> mapfst Some
-        let cilState = addReturnPoint newOffset cilState
-        methodInterpreter.ReduceFunctionSignature cilState.state calledMethodBase this (Specified args) false (fun state ->
-        x.CommonCall calledMethodBase (withState state cilState) pushResultToOperationalStack)
+        let callSite = createCallSite cfg.methodBase calledMethodBase offset OpCodes.Call
+        let cilState = addReturnPoint (newIp, callSite) cilState
+        calledMethodBase, this, args, cilState
+
+    member x.Call (cfg : cfg) offset newIp (cilState : cilState) =
+        let calledMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Call newIp cilState
+        methodInterpreter.ReduceFunctionSignature cilState.state calledMethod this (Specified args) false (fun state ->
+        x.CommonCall calledMethod (withState state cilState) id)
      member x.CommonCallVirt (ancestorMethodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
         let this = Memory.ReadThis cilState.state ancestorMethodBase
         let call (cilState : cilState) k =
@@ -394,13 +395,10 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 x.ReduceMethodBaseCall ancestorMethodBase cilState id) >> List.concat >> k)
         x.NpeOrInvokeStatementCIL cilState this call k
     member x.CallVirt (cfg : cfg) offset newOffset (cilState : cilState) =
-        let ancestorMethodBase = resolveMethodFromMetadata cfg (offset + OpCodes.Callvirt.Size)
-        let args, cilState = retrieveActualParameters ancestorMethodBase cilState
-        let this, cilState = popOperationalStack cilState
-        let cilState = addReturnPoint newOffset cilState
+        let ancestorMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Callvirt newOffset cilState
         // NOTE: It is not quite strict to ReduceFunctionSignature here because, but it does not matter because signatures of virtual methods are the same
-        methodInterpreter.ReduceFunctionSignature cilState.state ancestorMethodBase (Some this) (Specified args) false (fun state ->
-        x.CommonCallVirt ancestorMethodBase (withState state cilState) pushResultToOperationalStack)
+        methodInterpreter.ReduceFunctionSignature cilState.state ancestorMethod this (Specified args) false (fun state ->
+        x.CommonCallVirt ancestorMethod (withState state cilState) id)
     member x.ReduceArrayCreation (arrayType : System.Type) (cilState : cilState) (parameters : term list) k =
         let arrayTyp = Types.FromDotNetType cilState.state arrayType
         let reference, state = Memory.AllocateDefaultArray cilState.state parameters arrayTyp
@@ -458,12 +456,12 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             then x.CommonCreateDelegate constructorInfo cilState args k
             else nonDelegateCase cilState |> k
 
-    member x.NewObj (cfg : cfg) offset newOffset (cilState : cilState) : cilState list =
-        let constructorInfo = resolveMethodFromMetadata cfg (offset + OpCodes.Newobj.Size) :?> ConstructorInfo
-        assert (constructorInfo.IsConstructor)
-        let args, cilState = retrieveActualParameters constructorInfo cilState
-        let cilState = addReturnPoint newOffset cilState
-        x.CommonNewObj true constructorInfo cilState args pushResultToOperationalStack
+    member x.NewObj (cfg : cfg) offset newIp (cilState : cilState) =
+        let calledMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Newobj newIp cilState
+        assert(calledMethod.IsConstructor)
+        assert(Option.isNone this)
+        let constructorInfo = calledMethod :?> ConstructorInfo
+        x.CommonNewObj true constructorInfo cilState args id
 
     member x.LdsFld addressNeeded (cfg : cfg) offset (cilState : cilState) =
         let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Ldsfld.Size)

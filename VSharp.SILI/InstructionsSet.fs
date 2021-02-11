@@ -281,18 +281,19 @@ module internal InstructionsSet =
             | :? ConstructorInfo -> Void
             | :? MethodInfo as mi -> mi.ReturnType |> Types.FromDotNetType cilState.state
             | _ -> __notImplemented__()
-        let cilState =
-            if resultTyp = Void then cilState
+        let cilState, result =
+            if resultTyp = Void then withNoResult cilState, None
             else
                 let res, cilState = popOperationalStack cilState
                 let castedResult = castUnchecked resultTyp res cilState.state
                 let action = if List.isEmpty cilState.returnPoints then withResult else pushToOpStack
-                action castedResult cilState
+                action castedResult cilState, Some castedResult
 
         match cilState.returnPoints with
-        | [] -> withCurrentTime [] cilState
-        | p :: ps -> {cilState with ip = p; returnPoints = ps}
-        |> List.singleton
+        | [] -> cilState |> withCurrentTime []
+        | (p, callSite) :: ps -> {cilState with ip = p; returnPoints = ps} |> addToCallSiteResults callSite result
+        |> popStackOf |> List.singleton
+
 
     let transform2BooleanTerm pc (term : term) =
         let check term =
