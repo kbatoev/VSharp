@@ -27,14 +27,14 @@ module internal CilStateOperations =
 
     let makeInitialState state = makeCilState (ip.Instruction 0) state
 
-    let compose (cilState1 : cilState) (cilState2 : cilState) k =
+    let compose (cilState1 : cilState) (cilState2 : cilState) =
         let level =
             PersistentDict.fold (fun (acc : level) k v ->
                 let oldValue = if PersistentDict.contains k acc then PersistentDict.find acc k else 0u
                 PersistentDict.add k (v + oldValue) acc
             ) cilState1.level cilState2.level
         let states = Memory.ComposeStates cilState1.state cilState2.state
-        k <| List.map (fun state -> {cilState2 with state = state; level = level}) states
+        List.map (fun state -> {cilState2 with state = state; level = level}) states
 
     let incrementLevel (cilState : cilState) k =
         let lvl = cilState.level

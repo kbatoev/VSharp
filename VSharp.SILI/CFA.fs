@@ -267,12 +267,7 @@ module public CFA =
         member x.Dst = dst
         member x.Method = x.Src.Method
         member x.CommonFilterStates state =
-            let newPc = PC.squashPC state.pc
-            if newPc <> Terms.False then
-//                if dst.IsMethodExitVertex then ()
-//                dst.Paths.Add {lvl = lvl; state = state}
-                true
-            else false
+            PC.squashPC state.pc <> Terms.False
         override x.ToString() = x.commonToString()
         member x.commonToString() =
             sprintf "%s ID:[%d --> %d] IP:[%O --> %O] Method:%s"
@@ -350,18 +345,15 @@ module public CFA =
             Prelude.releaseAssert(Map.isEmpty effect.state.callSiteResults)
         override x.Type = "StepEdge"
         override x.PropagatePath (cilState : cilState) =
-            compose cilState effect (fun cilStates ->
-                x.PrintLog "composition left"  <| dump cilState
-                x.PrintLog "composition right" <| dump effect
-                List.iter (dump >> x.PrintLog (sprintf "composition resulted")) cilStates
-
-                assert(List.forall (fun (cilState' : cilState) -> cilState'.state.frames = cilState.state.frames) cilStates)
-
-                // Do NOT turn this List.fold into List.exists to be sure that EVERY returned state is propagated
-                let goodStates = List.filter (stateOf >> x.CommonFilterStates) cilStates
-                if List.length goodStates <> List.length cilStates then Logger.trace "Some states were not propagated from %O to %O" src.Ip cilState.ip
-                cilStates
-            )
+            let cilStates = compose cilState effect
+            x.PrintLog "composition left"  <| dump cilState
+            x.PrintLog "composition right" <| dump effect
+            List.iter (dump >> x.PrintLog (sprintf "composition resulted")) cilStates
+            assert(List.forall (fun (cilState' : cilState) -> cilState'.state.frames = cilState.state.frames) cilStates)
+            // Do NOT turn this List.fold into List.exists to be sure that EVERY returned state is propagated
+            let goodStates = List.filter (stateOf >> x.CommonFilterStates) cilStates
+            if List.length goodStates <> List.length cilStates then Logger.trace "Some states were not propagated from %O to %O" src.Ip cilState.ip
+            goodStates
 
         member x.Effect = effect
         member x.VisibleVariables() = __notImplemented__()
@@ -394,7 +386,6 @@ module public CFA =
                             let modifiedCilState = pushNewObjResultOnOpStack (withOpStack opStack resultCilState) reference callSite.calledMethod
                             { modifiedCilState.state with callSiteResults = initialState.callSiteResults}
                         else { resultState with callSiteResults = initialState.callSiteResults; opStack = opStack}
-
                     if x.CommonFilterStates stateAfterCall then {resultCilState with state = stateAfterCall; ip = dst.Ip} :: acc
                     else acc
                 List.fold propagateStateAfterCall [] cilStates

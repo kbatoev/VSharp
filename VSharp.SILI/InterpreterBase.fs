@@ -260,7 +260,7 @@ type public ExplorerBase() =
         x.Explore newFuncId (Seq.map (fun summary ->
             Logger.trace "ExploreAndCompose: Original CodeLoc = %O New CodeLoc = %O\ngot summary state = %s" funcId newFuncId (CilStateOperations.dump summary.cilState)
             Logger.trace "ExploreAndCompose: Left state = %s" (CilStateOperations.dump cilState)
-            let resultStates = CilStateOperations.compose cilState summary.cilState id
+            let resultStates = CilStateOperations.compose cilState summary.cilState
             List.iter (CilStateOperations.dump >> (Logger.trace "ExploreAndCompose: Result after composition %s")) resultStates
             resultStates) >> List.ofSeq >> List.concat >> k)
 
