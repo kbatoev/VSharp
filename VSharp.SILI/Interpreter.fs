@@ -15,17 +15,18 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
     inherit ExplorerBase()
 
     static let cfgs = Dictionary<IFunctionIdentifier, cfg>()
-    static let findCfg (ilmm : IFunctionIdentifier) =
+    member x.FindCfg (cilState : cilState) (*ilmm : IFunctionIdentifier*) =
+        let ilmm = x.MakeMethodIdentifier cilState.ip.method :> IFunctionIdentifier
         Dict.getValueOrUpdate cfgs ilmm (fun () -> CFG.build ilmm.Method)
 
 
 
     member x.Interpret (funcId : IFunctionIdentifier) (initialState : cilState) =
         let q = IndexedQueue()
-        let cfg = findCfg funcId
         q.Add initialState
 
         let step s =
+            let cfg = x.FindCfg s
             match searcher.GetSearchDirection(s) with
             | Step ->
                 let goodStates, incompleteStates, errors = ILInterpreter(x).ExecuteOnlyOneInstruction cfg s
@@ -962,6 +963,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
     member x.TypeInitializerException qualifiedTypeName innerException cilState =
         methodInterpreter.TypeInitializerException qualifiedTypeName innerException cilState
     member x.InvalidCastException cilState = methodInterpreter.InvalidCastException cilState
+
     // -------------------------------- ExplorerBase operations -------------------------------------
 
     member x.ExecuteAllInstructionsForCFGEdges (cfg : cfg) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
@@ -1018,7 +1020,19 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             incrementLevel cilState (instruction cfg.methodBase offset)
         else cilState
 
-    member x.ExecuteInstruction (cfg : cfg) (offset : int) (cilState : cilState) =
+    member x.RenewOpStackBalance opCode (cfg : cfg) (offset : offset) (cilState : cilState) =
+         // TODO: what occurs with opStack after exception?
+        let calledMethod =
+            match opCode with
+            | Instruction.Call | Instruction.CallVirt | Instruction.Calli | Instruction.NewObj ->
+                resolveMethodFromMetadata cfg (offset + opCode.Size) |> Some
+            | _ -> None
+        let oldMin, oldBalance = cilState.opStackOverLapping
+        let newBalance = oldBalance + Instruction.calculateOpStackChange opCode calledMethod
+        let newMinimum =  min newBalance oldMin
+        {cilState with opStackOverLapping = (newMinimum, newBalance)}
+
+    member x.ExecuteInstruction (cfg : cfg) (offset : offset) (cilState : cilState) =
         let m = cfg.methodBase
         let opCode = Instruction.parseInstruction cfg.ilBytes offset
         let newOffsets : ip list =
@@ -1034,4 +1048,9 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 | ConditionalBranch targets -> targets |> List.map (instruction m)
         let newSts = opcode2Function.[hashFunction opCode] cfg offset newOffsets cilState
 
-        newSts |> List.map (fun (d, cilState : cilState) -> d, x.IncrementLevelIfNeeded cfg offset cilState)
+        let renewInstructionsInfo cilState =
+            let cilState = x.RenewOpStackBalance opCode cfg offset cilState
+            //TODO: remove cilState.ip
+            cilState.ip, x.IncrementLevelIfNeeded cfg offset cilState
+
+        newSts |> List.map renewInstructionsInfo

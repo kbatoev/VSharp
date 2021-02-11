@@ -346,15 +346,15 @@ module internal InstructionsSet =
            let cilState = withOpStack stack cilState
            StatedConditionalExecutionCIL cilState
                (fun state k -> k (condTransform <| transform2BooleanTerm state.pc cond, state))
-               (fun cilState k -> k [offsetThen, cilState])
-               (fun cilState k -> k [offsetElse, cilState])
+               (fun cilState k -> k [withIp offsetThen cilState])
+               (fun cilState k -> k [withIp offsetElse cilState])
                id
         | _ -> __corruptedStack__()
     let brfalse = brcommon id
     let brtrue = brcommon (!!)
     let applyAndBranch errorStr additionalFunction brtrueFunction (cfg : cfgData) offset newOffsets (cilState : cilState) =
         match additionalFunction cfg offset [instruction cfg.methodBase offset] cilState with
-        | [_, st] -> brtrueFunction newOffsets st
+        | [st] -> brtrueFunction newOffsets st
         | _ -> internalfail errorStr
     let compare op operand1Transformation operand2Transformation (cilState : cilState) =
         match cilState.state.opStack with
@@ -445,7 +445,7 @@ module internal InstructionsSet =
             let checkOneCase (guard, newOffset) cilState kRestCases =
                 StatedConditionalExecutionCIL cilState
                     (fun state k -> k (guard, state))
-                    (fun cilState k -> k [newOffset, cilState])
+                    (fun cilState k -> k [withIp newOffset cilState])
                     (fun _ k -> kRestCases cilState k) // ignore pc because we always know that cases do not overlap
             let fallThroughOffset, newOffsets = List.head newOffsets, List.tail newOffsets
             let casesAndOffsets = List.mapi (fun i offset -> value === MakeNumber i, offset) newOffsets
@@ -558,19 +558,19 @@ module internal InstructionsSet =
         | _ -> __notImplemented__()
     let endfinally _ _ (cilState : cilState) =
         cilState |> withOpStack [] |> List.singleton
-    let zipWithOneOffset op cfgData offset newOffsets cilState =
-        assert (List.length newOffsets = 1)
-        let newOffset = List.head newOffsets
+    let zipWithOneOffset op cfgData offset newIps cilState =
+        assert (List.length newIps = 1)
+        let newIp = List.head newIps
         let cilStates = op cfgData offset cilState
-        List.map (withFst newOffset) cilStates
+        List.map (withIp newIp) cilStates
 
     let zipWithOneOffsetForCall op cfgData offset newOffsets cilState =
         assert (List.length newOffsets = 1)
         let newOffset = List.head newOffsets
         let cilStates = op cfgData offset newOffset cilState
-        List.map (withFst newOffset) cilStates
+        cilStates
 
-    let opcode2Function : (cfgData -> offset -> ip list -> cilState -> (ip * cilState) list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
+    let opcode2Function : (cfgData -> offset -> ip list -> cilState -> cilState list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
     opcode2Function.[hashFunction OpCodes.Br]                 <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []
     opcode2Function.[hashFunction OpCodes.Br_S]               <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []
     opcode2Function.[hashFunction OpCodes.Add]                <- zipWithOneOffset <| fun _ _ -> standardPerformBinaryOperation OperationType.Add

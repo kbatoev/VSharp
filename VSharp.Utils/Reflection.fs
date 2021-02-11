@@ -56,6 +56,8 @@ module public Reflection =
         | :? MethodInfo as m -> m.ReturnType
         | _ -> internalfail "unknown MethodBase"
 
+    let public HasNonVoidResult m = GetMethodReturnType m <> typeof<System.Void>
+
     let public GetFullMethodName (methodBase : MethodBase) =
         let returnType = GetMethodReturnType methodBase
         methodBase.GetParameters()
