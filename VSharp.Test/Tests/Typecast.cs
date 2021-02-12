@@ -83,6 +83,18 @@ namespace VSharp.Test.Tests.Typecast
         }
 
         [TestSvm]
+        public static bool CheckIs(ValueType x)
+        {
+            return x is Double;
+        }
+
+        [TestSvm]
+        public static bool CheckConcreteIs()
+        {
+            return 5 is Double;
+        }
+
+        [TestSvm]
         public static int DownCastObject2(object obj1, object obj2)
         {
             bool a = obj1 is Piece & obj2 is Pawn;

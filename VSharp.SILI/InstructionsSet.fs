@@ -500,7 +500,7 @@ module internal InstructionsSet =
                 (fun cilState k -> cilState |> withOpStack (NullRef :: stack) |> List.singleton |> k)
                 (fun cilState k ->
                     StatedConditionalExecutionCIL cilState
-                        (fun state k -> k (Types.IsCast cilState.state typ object, state))
+                        (fun state k -> k (Types.IsCast cilState.state object typ, state))
                         (fun cilState k -> k [cilState])
                         (fun cilState k -> cilState |> withOpStack (NullRef :: stack) |> List.singleton |> k)
                         k)

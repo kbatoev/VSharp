@@ -280,11 +280,9 @@ module internal Types =
         | Null -> __unreachable__()
         | t -> (toDotNetType t).IsValueType
 
-    let isConcreteSubtype t1 t2 =
-        (toDotNetType t2).IsAssignableFrom(toDotNetType t1)
+    let isConcreteSubtype t1 t2 = TypeUtils.isVerifierAssignable (toDotNetType t1) (toDotNetType t2)
 
-    let isConvertible t1 t2 =
-        TypeUtils.isConvertible (toDotNetType t1) (toDotNetType t2)
+    let canCoerce t1 t2 = TypeUtils.canCoerce (toDotNetType t1) (toDotNetType t2)
 
 type symbolicType with
     interface IAtomicRegion<symbolicType> with

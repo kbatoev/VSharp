@@ -119,7 +119,10 @@ module API =
         let TypeIsRef state typ ref = TypeCasting.typeIsRef state typ ref
         let RefIsType state ref typ = TypeCasting.refIsType state ref typ
 
-        let IsCast state targetType term = TypeCasting.canCast state term targetType
+        let IsCast state term targetType = TypeCasting.canCast state term targetType
+        let canCastImplicitly term targetType =
+            let actualType = TypeOf term
+            Types.canCoerce actualType targetType || Types.isConcreteSubtype actualType targetType // TODO: optimize #do
         let Cast term targetType = TypeCasting.cast term targetType
         let CastConcrete value typ = castConcrete value typ
         let CastReferenceToPointer state reference = TypeCasting.castReferenceToPointer state reference

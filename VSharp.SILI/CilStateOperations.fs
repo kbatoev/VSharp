@@ -42,13 +42,12 @@ module internal CilStateOperations =
         {cilState with level = PersistentDict.add k newValue lvl}
 
     // ------------------------------- Helper functions for cilState and state interaction -------------------------------
+
     let stateOf (cilState : cilState) = cilState.state
     let popStackOf (cilState : cilState) = {cilState with state = Memory.PopStack cilState.state}
 
     let withCurrentTime time (cilState : cilState) = {cilState with state = {cilState.state with currentTime = time}}
-
     let withOpStack opStack (cilState : cilState) = {cilState with state = {cilState.state with opStack = opStack}}
-
     let withState state (cilState : cilState) = {cilState with state = state}
     let changeState (cilState : cilState) state = {cilState with state = state}
     let withResult result (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = Some result}}
@@ -58,10 +57,7 @@ module internal CilStateOperations =
     let pushToOpStack v (cilState : cilState) = {cilState with state = {cilState.state with opStack = v :: cilState.state.opStack}}
     let withException exc (cilState : cilState) = {cilState with state = {cilState.state with exceptionsRegister = exc}}
 
-
     // ------------------------------- Helper functions for cilState -------------------------------
-
-
 
     let pushResultOnOpStack (cilState : cilState) (res, state) =
         if res <> Terms.Nop then cilState |> withState state |> pushToOpStack res
@@ -105,6 +101,7 @@ module internal CilStateOperations =
             k
 
     // ------------------------------- Pretty printing for cilState -------------------------------
+
     let private dumpSection section (sb : StringBuilder) =
         sprintf "--------------- %s: ---------------" section |> sb.AppendLine
 

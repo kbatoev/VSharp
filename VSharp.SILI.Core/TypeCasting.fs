@@ -32,13 +32,12 @@ module internal TypeCasting =
 
     let rec typeIsType leftType rightType = // left is subtype of right
         let boolConst left right = makeSubtypeBoolConst (ConcreteType left) (ConcreteType right)
-
         match leftType, rightType with
         | _ when leftType = rightType -> True
         | Null, _
         | Void, _   | _, Void -> False
         | ArrayType _, ClassType(Id obj, _) when obj <> typedefof<obj> -> False // TODO: use more common heuristics
-        | Numeric _, Numeric _ -> True
+        | Numeric _, Numeric _ when isConcreteSubtype leftType rightType -> True
         | Pointer _, Pointer _ -> True
         | ArrayType _, ArrayType(_, SymbolicDimension) -> True
         | ArrayType(t1, ConcreteDimension d1), ArrayType(t2, ConcreteDimension d2) ->
@@ -156,6 +155,8 @@ module internal TypeCasting =
             | _ -> typeIsType (typeOf term) targetType
         Merging.guardedApply castCheck term
 
+    // Now cast makes: casts, conversions, coercions
+    // TODO: split whose someday
     let cast term targetType =
         let castUnguarded term =
             match typeOf term with

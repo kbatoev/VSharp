@@ -61,13 +61,9 @@ type opStackSource =
         override x.Time = x.time
         override x.TypeOfLocation = x.typ
         override x.Compose state =
-            let validateCompositionResult typ =
-                typ = Null && (not <| Types.IsValueType x.typ)
-                || (Types.ToDotNetType typ).IsAssignableFrom (Types.ToDotNetType x.typ) // do not reorder operands of "OR"!
-
             let result = List.item (int x.shift) state.opStack
-            assert(validateCompositionResult <| TypeOf result) // TODO: what if (0:int) is assigned to reference?
-            result
+            assert(Types.canCastImplicitly result x.typ) // TODO: what if (0:int) is assigned to reference?
+            Types.Cast result x.typ
 
 [<StructuralEquality;NoComparison>]
 type stackBufferIndexAddress =

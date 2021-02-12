@@ -395,33 +395,31 @@ module internal Terms =
         | Union gvs -> List.forall (snd >> isReference) gvs
         | _ -> false
 
-    let canCastConcrete (value : obj) targetType =
+    // Only for concretes: there will never be null type
+    let canCastConcrete (concrete : obj) targetType =
         let targetType = Types.toDotNetType targetType
-        let actualType = if box value = null then targetType else value.GetType()
-        TypeUtils.canCast actualType targetType
+        let actualType = if box concrete = null then targetType else concrete.GetType()
+        TypeUtils.isVerifierAssignable actualType targetType
 
-    let castConcrete (value : obj) (t : System.Type) =
-        let actualType = if box value = null then t else value.GetType()
+    let castConcrete (concrete : obj) (t : Type) = // TODO: split this into conversion, coercion and cast functions
+        let actualType = if box concrete = null then t else concrete.GetType()
         let functionIsCastedToMethodPointer () =
             typedefof<System.Reflection.MethodBase>.IsAssignableFrom(actualType) && typedefof<System.IntPtr>.IsAssignableFrom(t)
         if actualType = t then
-            Concrete value (fromDotNetType t)
+            Concrete concrete (fromDotNetType t)
         elif t.IsEnum && t.GetEnumUnderlyingType().IsAssignableFrom(actualType) || actualType.IsEnum && actualType.GetEnumUnderlyingType().IsAssignableFrom(t) then
-            Concrete value (fromDotNetType t)
+            Concrete concrete (fromDotNetType t)
         elif typedefof<IConvertible>.IsAssignableFrom(actualType) && TypeUtils.isPrimitive t then
             let casted =
-                if t.IsPointer then
-                    IntPtr(Convert.ChangeType(value, typedefof<int64>) :?> int64) |> box
-                // TODO: ability to convert negative integers to UInt32 without overflowException
-                elif TypeUtils.isCoercing t && TypeUtils.isCoercing actualType then // TODO: why we need this? Why not just use Convert.ChangeType? #Kostya
-                    // TODO: how to do double here? #do
-                    TypeUtils.uncheckedChangeType value t // TODO: comment #do
-                else Convert.ChangeType(value, t) // TODO: overflow can be here, but it is needed for Double (type of value is double in UnboxAny1)
+                if t.IsPointer then IntPtr(Convert.ChangeType(concrete, typedefof<int64>) :?> int64) |> box
+                elif TypeUtils.canCoerce t actualType then TypeUtils.coercion concrete t
+                // it is needed for conversions from Int to Double (test: UnboxAny1)
+                else TypeUtils.convert concrete t // TODO: if we need coercion then behavior is different from convert! (example: double)
             Concrete casted (fromDotNetType t)
         elif t.IsAssignableFrom(actualType) then
-            Concrete value (fromDotNetType t)
+            Concrete concrete (fromDotNetType t)
         elif functionIsCastedToMethodPointer() then
-            Concrete value (fromDotNetType actualType)
+            Concrete concrete (fromDotNetType actualType)
         else raise(InvalidCastException(sprintf "Cannot cast %s to %s!" actualType.FullName t.FullName))
 
     let True =
@@ -470,6 +468,7 @@ module internal Terms =
         match term.term with
         | _ when typeOf term = targetType -> term
         | Concrete(value, _) -> castConcrete value (Types.toDotNetType targetType)
+        // TODO: make cast to Bool like function Transform2BooleanTerm
         | Constant(_, _, t)
         | Expression(_, _, t) -> makeCast t targetType term
         | Union gvs -> gvs |> List.map (fun (g, v) -> (g, primitiveCast v targetType)) |> Union

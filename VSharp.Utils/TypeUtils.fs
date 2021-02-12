@@ -58,15 +58,26 @@ module TypeUtils =
     let private isLong = (=) typeof<int64>
     let private isULong = (=) typeof<uint64>
 
-    let isConvertible (leftType : Type) rightType =
+    let isVerifierAssignable (leftType : Type) (rightType : Type) =
+        match box leftType, box rightType with
+        | _ when leftType = rightType -> true
+        | null, _ -> not rightType.IsValueType
+        | _, null -> false
+        | _ -> rightType.IsAssignableFrom(leftType)
+
+    // TODO: use table "Implicit argument coercion" for implementation
+    let canCoerce leftType rightType = isCoercing leftType && isCoercing rightType
+
+    let isConvertible (leftType : Type) rightType = // TODO: delete #do
         typedefof<IConvertible>.IsAssignableFrom(leftType) && isPrimitive rightType
 
-    let canCast actualType (targetType : Type) =
-        actualType = targetType
-        || targetType.IsAssignableFrom(actualType)
-        || isConvertible actualType targetType
+    let canCast actualType (targetType : Type) = // TODO: delete #do
+        isVerifierAssignable actualType targetType || isConvertible actualType targetType
 
-    let uncheckedChangeType (value : obj) t =
+    // [Info from spec] Coercion is implicit, it truncates bytes
+    // TODO: ability to convert negative integers to UInt32 without overflowException
+    // TODO: implement coercion for float types
+    let coercion (value : obj) t =
         let bytes =
             match value with
             | :? bool   as b -> (if b then 1L else 0L) |> BitConverter.GetBytes
@@ -92,6 +103,12 @@ module TypeUtils =
         | _ when t = typedefof<Int64>   -> BitConverter.ToInt64(bytes, 0)   :> obj
         | _ when t = typedefof<UInt64>  -> BitConverter.ToUInt64(bytes, 0)  :> obj
         | _ -> __notImplemented__()
+
+    // [Info from spec] Conversion is explicit (conv instruction)
+    // TODO: implement using conv.<type> information from specification (ecma)
+    let convert (value : obj) (t : Type) =
+        // TODO: overflow can be here
+        Convert.ChangeType(value, t)
 
     let failDeduceBinaryTargetType op x y =
         internalfailf "%s (%O x, %O y); is not a binary arithmetical operator" op x y

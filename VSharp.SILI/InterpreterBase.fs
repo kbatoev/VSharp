@@ -7,9 +7,9 @@ open VSharp.Core.API
 
 open VSharp
 open VSharp.Core
+open CilStateOperations
 open System.Collections.Generic
 open System.Reflection
-open VSharp.System
 
 type codeLocationSummary = { cilState : cilState } // state.returnRegister is used as result
     with
@@ -34,7 +34,7 @@ type public ExplorerBase() =
         | :? IMethodIdentifier as m ->
             assert(m.IsStatic)
             let state = Memory.InitializeStaticMembers Memory.EmptyState (Types.FromDotNetType Memory.EmptyState m.DeclaringType)
-            let initialState = CilStateOperations.makeInitialState state
+            let initialState = makeInitialState state
             x.Invoke id initialState (List.map (fun cilState -> { cilState = cilState }) >> List.toSeq >> k)
         | _ -> internalfailf "unexpected entry point: expected regular method, but got %O" id
 
@@ -81,11 +81,9 @@ type public ExplorerBase() =
 //        else
         let methodId = x.MakeMethodIdentifier methodBase
         let invoke state k = x.Invoke methodId state k
-        let restoreOpStack = withOpStack initialState.opStack
-        let state = { initialState with opStack = [] }
-        let restoreOpStack state = { state with opStack = initialState.opStack }
-        x.EnterRecursiveRegion methodId state invoke (List.map (fun (t, s) -> t, restoreOpStack s) >> k)
-
+        let cilState = withOpStack [] initialCilState
+        let restoreOpStack cilState = withOpStack initialCilState.state.opStack cilState
+        x.EnterRecursiveRegion methodId cilState invoke (List.map restoreOpStack >> k)
 
     member x.ReduceFunctionSignature state (methodBase : MethodBase) this paramValues isEffect k =
         let funcId = x.MakeMethodIdentifier methodBase
@@ -162,7 +160,7 @@ type public ExplorerBase() =
                             let stateWithoutCallSiteResult = {stateAfterCallingCCtor with callSiteResults = state.callSiteResults; opStack = state.opStack}
                             {cilStateAfterCallingCCtor with state = stateWithoutCallSiteResult}
                         x.ReduceFunctionSignature state cctor None (Specified []) false (fun state ->
-                        x.ReduceFunction cctor {cilState with state = state} (List.map removeCallSiteResultAndPopStack))
+                        x.ReduceFunction {cilState with state = state} cctor (List.map removeCallSiteResultAndPopStack))
                     | None -> {cilState with state = state } |> List.singleton
                 k cilStates // TODO: make assumption ``Memory.withPathCondition state (!!typeInitialized)''
 
@@ -181,7 +179,7 @@ type public ExplorerBase() =
         x.ReduceFunctionSignature state funcId.Method this Unspecified true (fun state -> state, this, thisIsNotNull)
     member x.FormInitialState (funcId : IFunctionIdentifier) : (cilState * term option * term) list =
         let state, this, thisIsNotNull = x.FormInitialStateWithoutStatics funcId
-        let cilState = CilStateOperations.makeInitialState state
+        let cilState = makeInitialState state
         x.InitializeStatics cilState funcId.Method.DeclaringType (List.map (fun cilState -> cilState, this, thisIsNotNull(*, isMethodOfStruct*)))
 
     abstract CreateInstance : System.Type -> term list -> cilState -> cilState list
@@ -256,11 +254,11 @@ type public ExplorerBase() =
             else k
 
         x.Explore newFuncId (Seq.map (fun summary ->
-            Logger.trace "ExploreAndCompose: Original CodeLoc = %O New CodeLoc = %O\ngot summary state = %s" funcId newFuncId (CilStateOperations.dump summary.cilState)
-            Logger.trace "ExploreAndCompose: Left state = %s" (CilStateOperations.dump cilState)
-            let summaryCilState = {summary.state with currentTime = []}
-            let resultStates = CilStateOperations.compose cilState summaryCilState
-            List.iter (CilStateOperations.dump >> (Logger.trace "ExploreAndCompose: Result after composition %s")) resultStates
+            Logger.trace "ExploreAndCompose: Original CodeLoc = %O New CodeLoc = %O\ngot summary state = %s" funcId newFuncId (dump summary.cilState)
+            Logger.trace "ExploreAndCompose: Left state = %s" (dump cilState)
+            let summaryCilState = withCurrentTime [] summary.cilState
+            let resultStates = compose cilState summaryCilState
+            List.iter (dump >> (Logger.trace "ExploreAndCompose: Result after composition %s")) resultStates
             resultStates) >> List.ofSeq >> List.concat >> k)
 
     abstract member Invoke : IFunctionIdentifier -> cilState -> (cilState list -> 'a) -> 'a
@@ -268,5 +266,4 @@ type public ExplorerBase() =
     abstract member MakeMethodIdentifier : MethodBase -> IMethodIdentifier
 
     abstract member ReproduceEffect : IFunctionIdentifier -> cilState -> (cilState list -> 'a) -> 'a
-    default x.ReproduceEffect funcId state k =
-            x.ExploreAndCompose funcId state k
+    default x.ReproduceEffect funcId state k = x.ExploreAndCompose funcId state k

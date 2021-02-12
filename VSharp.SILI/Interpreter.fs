@@ -260,11 +260,11 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 | None, false -> internalfail "Calling non-static concrete implementation for static method"
                 | _ -> thisOption, args
             let state = methodInterpreter.ReduceFunctionSignature state methodInfo thisOption (Specified args) false id
-            methodInterpreter.ReduceFunction {cilState with state = state} methodInfo invoke (List.map popStackOf >> k)
+            methodInterpreter.ReduceFunction {cilState with state = state} methodInfo (List.map popStackOf >> k)
         elif int (methodBase.GetMethodImplementationFlags() &&& MethodImplAttributes.InternalCall) <> 0 then
             internalfailf "new extern method: %s" fullMethodName
         elif methodBase.GetMethodBody() <> null then
-            methodInterpreter.ReduceFunction methodBase cilState k
+            methodInterpreter.ReduceFunction cilState methodBase k
         else
             internalfail "nonextern method without body!"
 
@@ -328,7 +328,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
     member x.CallAbstract funcId cilState k =
         methodInterpreter.CallAbstractMethod funcId cilState k
 
-    member private x.ConvOvf targetType typeForStack (cilState : cilState) = // TODO: think about getting rid of typeForStack
+    member private x.ConvOvf targetType typeForStack (cilState : cilState) = // TODO: think about getting rid of typeForStack #do
         let typIsLessTyp : Dictionary<symbolicType, list<symbolicType>> = Dictionary<_,_>()
         typIsLessTyp.[TypeUtils.int8Type] <- [TypeUtils.int8Type; TypeUtils.int16Type; TypeUtils.int32Type; TypeUtils.int64Type]
         typIsLessTyp.[TypeUtils.int16Type] <- [TypeUtils.int16Type; TypeUtils.int32Type; TypeUtils.int64Type]
@@ -351,7 +351,6 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         minMax.[TypeUtils.uint32Type] <- (System.UInt32.MinValue |> int64, System.UInt32.MaxValue |> int64)
         minMax.[TypeUtils.uint64Type] <- (System.UInt64.MinValue |> int64, System.UInt64.MaxValue |> int64)
 
-
         let getSegment leftTyp rightTyp =
             let min1, max1 = minMax.[leftTyp]
             let min2, max2 = minMax.[rightTyp]
@@ -363,12 +362,12 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
 
         let canCastWithoutOverflow term targetTermType =
             let (<<=) = API.Arithmetics.(<<=)
-            assert(TypeUtils.isInteger term)
+            assert(TypeUtils.isInteger term) // TODO: what if it is Double? #Kostya
             let termType = Terms.TypeOf term
             if less termType targetTermType then True
             elif termType = TypeUtils.int64Type && targetTermType = TypeUtils.uint64Type then
                 let int64Zero = MakeNumber (0 |> int64)
-                int64Zero <<= term
+                int64Zero <<= term // TODO: is it only left bound? where is right bound? #Kostya
             elif termType = TypeUtils.uint64Type && targetTermType = TypeUtils.int64Type then
                 let uint64RightBorder = MakeNumber (System.Int64.MaxValue |> uint64)
                 term <<= uint64RightBorder
@@ -382,7 +381,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             StatedConditionalExecutionCIL (withOpStack stack cilState)
                 (fun state k -> k (canCastWithoutOverflow t targetType, state))
                 (fun cilState k ->
-                    let castedResult = castUnchecked typeForStack (Types.Cast t targetType) cilState.state
+                    let castedResult = castUnchecked typeForStack (Types.Cast t targetType) cilState.state // TODO: delete second cast? #do
                     pushToOpStack castedResult cilState |> List.singleton |> k)
                 (x.Raise x.OverflowException)
                 id
@@ -396,7 +395,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
     member private x.CommonCastClass (cilState : cilState) (term : term) (typ : symbolicType) k =
         let term = castReferenceToPointerIfNeeded term typ cilState.state
         StatedConditionalExecutionAppendResultsCIL cilState
-            (fun state k -> k (IsNullReference term ||| Types.IsCast state typ term, state))
+            (fun state k -> k (IsNullReference term ||| Types.IsCast state term typ, state))
             (fun cilState k -> cilState |> withResult (Types.Cast term typ) |> List.singleton |> k)
             (x.Raise x.InvalidCastException)
             k
@@ -534,10 +533,10 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         match cilState.state.opStack with
         | target :: stack ->
             let loadWhenTargetIsNotNull (cilState : cilState) k =
-                let k1 value = pushToOpStack value cilState |> List.singleton |> k
+                let createCilState value = pushToOpStack value cilState |> List.singleton |> k
                 let fieldId = Reflection.wrapField fieldInfo
-                if addressNeeded then Memory.ReferenceField cilState.state target fieldId |> k1
-                else Memory.ReadField cilState.state target fieldId |> k1
+                if addressNeeded then Memory.ReferenceField cilState.state target fieldId |> createCilState
+                else Memory.ReadField cilState.state target fieldId |> createCilState
             x.NpeOrInvokeStatementCIL (withOpStack stack cilState) target loadWhenTargetIsNotNull id
         | _ -> __corruptedStack__()
     member x.StFld (cfg : cfg) offset (cilState : cilState) =
@@ -691,7 +690,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 canCastValueTypeToNullableTargetCase cilState
             else
                 StatedConditionalExecutionAppendResultsCIL cilState
-                    (fun state k -> k (Types.IsCast state termType obj, state)) // TODO: Why not Types.RefIsType method?
+                    (fun state k -> k (Types.IsCast state obj termType, state)) // TODO: Why not Types.RefIsType method?
                     (fun cilState k ->
                         let res, state = handleRestResults(Types.Cast obj termType |> HeapReferenceToBoxReference, cilState.state)
                         cilState |> withState state |> withResult res |> List.singleton |> k)
