@@ -183,6 +183,24 @@ module internal Instruction =
         elif pos + 1 >= ilBytes.Length then raise (IncorrectCIL("Prefix instruction FE without suffix!"))
         else twoBytesOpCodes.[int ilBytes.[pos + 1]]
 
+    let parseCallSite (m : MethodBase) pos =
+        let ilBytes = m.GetMethodBody().GetILAsByteArray()
+        let opCode = parseInstruction ilBytes pos
+        let calledMethod = resolveMethodFromMetadata m ilBytes (pos + opCode.Size)
+        {VSharp.Core.callSite.sourceMethod = m; calledMethod = calledMethod; opCode = opCode; offset = pos}
+
+    let findNextIps (opCode : OpCode) =
+        if isLeaveOpCode opCode || opCode = OpCodes.Endfinally
+        then cfg.graph.[offset] |> Seq.map (instruction m) |> List.ofSeq
+        else
+            let nextTargets = findNextInstructionOffsetAndEdges opCode cfg.ilBytes offset
+            match nextTargets with
+            | UnconditionalBranch nextInstruction
+            | FallThrough nextInstruction -> instruction m nextInstruction :: []
+            | Return -> exit m :: []
+            | ExceptionMechanism -> findingHandler m offset :: []
+            | ConditionalBranch targets -> targets |> List.map (instruction m)
+
     let private resultAddition (m : MethodBase) = if Reflection.HasNonVoidResult m then 1 else 0
 
     let calculateOpStackChange (opCode : OpCode) (*m : MethodBase*) (calledMethod : MethodBase option) : int =

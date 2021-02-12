@@ -286,12 +286,17 @@ module internal InstructionsSet =
             else
                 let res, cilState = popOperationalStack cilState
                 let castedResult = castUnchecked resultTyp res cilState.state
-                let action = if List.isEmpty cilState.returnPoints then withResult else pushToOpStack
+                let action = if List.length cilState.ip = 1 then withResult else pushToOpStack
                 action castedResult cilState, Some castedResult
 
-        match cilState.returnPoints with
-        | [] -> cilState |> withCurrentTime []
-        | (p, callSite) :: ps -> {cilState with ip = p; returnPoints = ps} |> addToCallSiteResults callSite result
+        match List.tail cilState.ip with
+        | [] -> cilState |> withIp []
+                |> withCurrentTime [] // TODO: #ask Misha
+        | ip :: ips ->
+            let offset = ip.Offset()
+            let callSite = Instruction.parseCallSite ip.method offset
+            let nextIp = Instruction.findNextInstructionOffsetAndEdges
+            {cilState with ip = p; returnPoints = ps} |> addToCallSiteResults callSite result
         |> popStackOf |> List.singleton
 
 

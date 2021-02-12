@@ -1027,10 +1027,10 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             | Instruction.Call | Instruction.CallVirt | Instruction.Calli | Instruction.NewObj ->
                 resolveMethodFromMetadata cfg (offset + opCode.Size) |> Some
             | _ -> None
-        let oldMin, oldBalance = cilState.opStackOverLapping
+        let oldMin, oldBalance = cilState.popsCount
         let newBalance = oldBalance + Instruction.calculateOpStackChange opCode calledMethod
         let newMinimum =  min newBalance oldMin
-        {cilState with opStackOverLapping = (newMinimum, newBalance)}
+        {cilState with popsCount = (newMinimum, newBalance)}
 
     member x.ExecuteInstruction (cfg : cfg) (offset : offset) (cilState : cilState) =
         let m = cfg.methodBase

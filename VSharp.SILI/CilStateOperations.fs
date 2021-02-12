@@ -8,37 +8,41 @@ open VSharp.Core.API
 open ipOperations
 
 type cilState =
-    { ip : ip
+    { ip : ip list
       state : state
       filterResult : term option
       iie : InsufficientInformationException option
       level : level
       startingIP : ip
-      returnPoints : (ip * callSite) list // next ip and a callsite of a caller
-      opStackOverLapping : int * int      // maximum and currentValue
+      popsCount : int * int      // minimum and currentValue
     }
-    member x.CanBeExpanded () = x.ip.CanBeExpanded()
+    member x.CanBeExpanded () =
+        match x.ip with
+        | ip :: _ -> ip.CanBeExpanded()
+        | _ -> __unreachable__()
     member x.HasException = Option.isSome x.state.exceptionsRegister.ExceptionTerm
 
 module internal CilStateOperations =
 
     let makeCilState curV state =
-        { ip = curV
+        { ip = [curV]
           state = state
           filterResult = None
           iie = None
           level = PersistentDict.empty
           startingIP = curV
-          returnPoints = []
-          opStackOverLapping = 0,0
+          popsCount = 0,0
         }
 
     let makeInitialState m state = makeCilState (instruction m 0) state
 
     let isIIEState (s : cilState) = Option.isSome s.iie
     let isError (s : cilState) = s.HasException
+    let lastIp (s : cilState) = List.head s.ip
 
     let compose (cilState1 : cilState) (cilState2 : cilState) =
+        assert(lastIp cilState1 = cilState2.startingIP)
+
         let level =
             PersistentDict.fold (fun (acc : level) k v ->
                 let oldValue = if PersistentDict.contains k acc then PersistentDict.find acc k else 0u
@@ -46,10 +50,10 @@ module internal CilStateOperations =
             ) cilState1.level cilState2.level
 
         let states = Memory.ComposeStates cilState1.state cilState2.state id
-        let leftOpStack = List.skip (-1 * fst cilState2.opStackOverLapping) cilState1.state.opStack
+        let leftOpStack = List.skip (-1 * fst cilState2.popsCount) cilState1.state.opStack
         let makeResultState (state : state) =
             let state' = {state with opStack = leftOpStack @ state.opStack}
-            {cilState2 with state = state'; level = level}
+            {cilState2 with state = state'; level = level; popsCount = cilState1.popsCount}
         List.map makeResultState states
 
     let incrementLevel (cilState : cilState) k =
@@ -76,7 +80,7 @@ module internal CilStateOperations =
     let withResultState result (state : state) = {state with returnRegister = Some result}
     let withIp ip (cilState : cilState) = {cilState with ip = ip}
     let pushToOpStack v (cilState : cilState) = {cilState with state = {cilState.state with opStack = v :: cilState.state.opStack}}
-    let addReturnPoint p (cilState : cilState) = {cilState with returnPoints = p :: cilState.returnPoints}
+//    let addReturnPoint p (cilState : cilState) = {cilState with returnPoints = p :: cilState.returnPoints}
     let withException exc (cilState : cilState) = {cilState with state = {cilState.state with exceptionsRegister = exc}}
 
 
