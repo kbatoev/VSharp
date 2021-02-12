@@ -290,13 +290,15 @@ module internal InstructionsSet =
                 action castedResult cilState, Some castedResult
 
         match List.tail cilState.ip with
-        | [] -> cilState |> withIp []
+        | [] -> cilState |> moveCurrentIp (exit cfg.methodBase)
                 |> withCurrentTime [] // TODO: #ask Misha
         | ip :: ips ->
             let offset = ip.Offset()
             let callSite = Instruction.parseCallSite ip.method offset
-            let nextIp = Instruction.findNextInstructionOffsetAndEdges
-            {cilState with ip = p; returnPoints = ps} |> addToCallSiteResults callSite result
+            let nextIps = findNextIps ip.method offset
+            assert(List.length nextIps = 1)
+            let ip' = List.head nextIps
+            {cilState with ip = ip' :: ips} |> addToCallSiteResults callSite result
         |> popStackOf |> List.singleton
 
 
@@ -351,8 +353,8 @@ module internal InstructionsSet =
            let cilState = withOpStack stack cilState
            StatedConditionalExecutionCIL cilState
                (fun state k -> k (condTransform <| transform2BooleanTerm state.pc cond, state))
-               (fun cilState k -> k [withIp offsetThen cilState])
-               (fun cilState k -> k [withIp offsetElse cilState])
+               (fun cilState k -> k [moveCurrentIp offsetThen cilState])
+               (fun cilState k -> k [moveCurrentIp offsetElse cilState])
                id
         | _ -> __corruptedStack__()
     let brfalse = brcommon id
@@ -450,7 +452,7 @@ module internal InstructionsSet =
             let checkOneCase (guard, newOffset) cilState kRestCases =
                 StatedConditionalExecutionCIL cilState
                     (fun state k -> k (guard, state))
-                    (fun cilState k -> k [withIp newOffset cilState])
+                    (fun cilState k -> k [moveCurrentIp newOffset cilState])
                     (fun _ k -> kRestCases cilState k) // ignore pc because we always know that cases do not overlap
             let fallThroughOffset, newOffsets = List.head newOffsets, List.tail newOffsets
             let casesAndOffsets = List.mapi (fun i offset -> value === MakeNumber i, offset) newOffsets
@@ -567,7 +569,7 @@ module internal InstructionsSet =
         assert (List.length newIps = 1)
         let newIp = List.head newIps
         let cilStates = op cfgData offset cilState
-        List.map (withIp newIp) cilStates
+        List.map (moveCurrentIp newIp) cilStates
 
     let zipWithOneOffsetForCall op cfgData offset newOffsets cilState =
         assert (List.length newOffsets = 1)

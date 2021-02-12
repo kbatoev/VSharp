@@ -5,6 +5,7 @@ open System
 open VSharp
 open System.Reflection
 open System.Reflection.Emit
+open VSharp.Core
 
 exception IncorrectCIL of string
 
@@ -92,6 +93,7 @@ module internal Instruction =
     let private twoBytesOpCodes = Array.create equalSizeOpCodesCount OpCodes.Nop;
 
     let private fillOpCodes =
+        let (&&&) = Microsoft.FSharp.Core.Operators.(&&&)
         let resolve (field : FieldInfo) =
             match field.GetValue() with
             | :? OpCode as opCode -> let value = int opCode.Value
@@ -187,19 +189,7 @@ module internal Instruction =
         let ilBytes = m.GetMethodBody().GetILAsByteArray()
         let opCode = parseInstruction ilBytes pos
         let calledMethod = resolveMethodFromMetadata m ilBytes (pos + opCode.Size)
-        {VSharp.Core.callSite.sourceMethod = m; calledMethod = calledMethod; opCode = opCode; offset = pos}
-
-    let findNextIps (opCode : OpCode) =
-        if isLeaveOpCode opCode || opCode = OpCodes.Endfinally
-        then cfg.graph.[offset] |> Seq.map (instruction m) |> List.ofSeq
-        else
-            let nextTargets = findNextInstructionOffsetAndEdges opCode cfg.ilBytes offset
-            match nextTargets with
-            | UnconditionalBranch nextInstruction
-            | FallThrough nextInstruction -> instruction m nextInstruction :: []
-            | Return -> exit m :: []
-            | ExceptionMechanism -> findingHandler m offset :: []
-            | ConditionalBranch targets -> targets |> List.map (instruction m)
+        {sourceMethod = m; calledMethod = calledMethod; opCode = opCode; offset = pos}
 
     let private resultAddition (m : MethodBase) = if Reflection.HasNonVoidResult m then 1 else 0
 

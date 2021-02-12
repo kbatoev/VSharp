@@ -38,10 +38,16 @@ module internal CilStateOperations =
 
     let isIIEState (s : cilState) = Option.isSome s.iie
     let isError (s : cilState) = s.HasException
-    let lastIp (s : cilState) = List.head s.ip
+    let currentIp (s : cilState) = List.head s.ip
+    let addIp (ip : ip) (cilState : cilState) = {cilState with ip = ip :: cilState.ip}
+    let moveCurrentIp (ip : ip) (cilState : cilState) =
+        match cilState.ip with
+        | _ :: ips -> {cilState with ip = ip :: ips}
+        | [] when ip.label = Exit -> cilState
+        | _ -> __unreachable__()
 
     let compose (cilState1 : cilState) (cilState2 : cilState) =
-        assert(lastIp cilState1 = cilState2.startingIP)
+        assert(currentIp cilState1 = cilState2.startingIP)
 
         let level =
             PersistentDict.fold (fun (acc : level) k v ->
@@ -78,7 +84,8 @@ module internal CilStateOperations =
     let withResult result (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = Some result}}
     let withNoResult (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = None}}
     let withResultState result (state : state) = {state with returnRegister = Some result}
-    let withIp ip (cilState : cilState) = {cilState with ip = ip}
+
+
     let pushToOpStack v (cilState : cilState) = {cilState with state = {cilState.state with opStack = v :: cilState.state.opStack}}
 //    let addReturnPoint p (cilState : cilState) = {cilState with returnPoints = p :: cilState.returnPoints}
     let withException exc (cilState : cilState) = {cilState with state = {cilState.state with exceptionsRegister = exc}}

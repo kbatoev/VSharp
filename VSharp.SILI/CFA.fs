@@ -402,7 +402,8 @@ module public CFA =
                             { modifiedCilState.state with callSiteResults = initialState.callSiteResults}
                         else { resultState with callSiteResults = initialState.callSiteResults; opStack = opStack}
 
-                    if x.CommonFilterStates stateAfterCall then {resultCilState with state = stateAfterCall; ip = dst.Ip} :: acc
+                    if x.CommonFilterStates stateAfterCall then
+                        (resultCilState |> moveCurrentIp dst.Ip |> withState stateAfterCall) :: acc
                     else acc
                 List.fold propagateStateAfterCall [] cilStates
 
@@ -542,7 +543,8 @@ module public CFA =
             symbolicOpStack
 
         let private executeSeparatedOpCode (methodInterpreter : MethodInterpreter) (cfg : cfg) (cilState : cilState) =
-            let offset = cilState.ip.Offset()
+            let ip = currentIp cilState
+            let offset = ip.Offset()
             let opCode, calledMethod = cfg.offsetsDemandingCall.[offset]
             let callSite = { sourceMethod = cfg.methodBase; offset = offset; calledMethod = calledMethod; opCode = opCode }
             let pushFunctionResultOnOpStackIfNeeded (cilState : cilState) (methodInfo : MethodInfo) =
@@ -573,9 +575,10 @@ module public CFA =
             let stateWithArgsOnFrame : state = methodInterpreter.ReduceFunctionSignature cilState.state calledMethod this (Specified args) false id
             let nextIp =
                 assert(cfg.graph.[offset].Count = 1)
-                {cilState.ip with label = Instruction cfg.graph.[offset].[0]}
+                {ip with label = Instruction cfg.graph.[offset].[0]}
 
-            { cilState with ip = nextIp; state = stateWithArgsOnFrame }, callSite, numberToDrop
+            let cilState = cilState |> moveCurrentIp nextIp |> withState stateWithArgsOnFrame
+            cilState, callSite, numberToDrop
 
         // TODO: change offset to ip for Vertex
         let private ip2Offset (ip : ip) =
@@ -672,8 +675,8 @@ module public CFA =
                     else vertices
                 else
                     let finishedStates, incompleteStates, erroredStates = ilInterpreter.ExecuteAllInstructionsForCFGEdges cfg initialCilState
-                    let incompleteStates = List.filter (fun (cilState : cilState) -> cilState.ip <> srcVertex.Ip) incompleteStates
-                    let goodStates = finishedStates |> List.filter (fun (cilState : cilState) -> cilState.ip = d.v)
+                    let incompleteStates = List.filter (fun (cilState : cilState) -> currentIp cilState <> srcVertex.Ip) incompleteStates
+                    let goodStates = finishedStates |> List.filter (fun (cilState : cilState) -> currentIp cilState = d.v)
                     srcVertex.AddErroredStates erroredStates
 
                     let createEdge (cilState' : cilState) dstVertex = StepEdge(d.srcVertex, dstVertex, cilState')

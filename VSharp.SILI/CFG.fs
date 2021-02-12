@@ -199,3 +199,21 @@ module public CFG =
         let cfg = addVerticesAndEdges cfgData interimData
         orderEdges (HashSet<offset>()) cfg
         cfg
+
+    let cfgs = Dictionary<MethodBase, cfgData>()
+    let findCfg m = Dict.getValueOrUpdate cfgs m (fun () -> build m)
+
+    let findNextIps m offset =
+        let cfg = findCfg m
+        let opCode = Instruction.parseInstruction cfg.ilBytes offset
+        let m = cfg.methodBase
+        if Instruction.isLeaveOpCode opCode || opCode = OpCodes.Endfinally
+        then cfg.graph.[offset] |> Seq.map (ipOperations.instruction m) |> List.ofSeq
+        else
+            let nextTargets = Instruction.findNextInstructionOffsetAndEdges opCode cfg.ilBytes offset
+            match nextTargets with
+            | UnconditionalBranch nextInstruction
+            | FallThrough nextInstruction -> ipOperations.instruction m nextInstruction :: []
+            | Return -> ipOperations.exit m :: []
+            | ExceptionMechanism -> ipOperations.findingHandler m offset :: []
+            | ConditionalBranch targets -> targets |> List.map (ipOperations.instruction m)
