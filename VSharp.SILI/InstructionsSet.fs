@@ -275,7 +275,7 @@ module internal InstructionsSet =
         | t :: _ -> pushToOpStack t cilState |> List.singleton
         | _ -> __corruptedStack__()
 
-    let ret (cfg : cfgData) _ (cilState : cilState) =
+    let ret (cfg : cfgData) _ (cilState : cilState) : cilState list =
         let resultTyp =
             match cfg.methodBase with
             | :? ConstructorInfo -> Void

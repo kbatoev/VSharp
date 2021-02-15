@@ -1034,7 +1034,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let newMinimum =  min newBalance oldMin
         {cilState with popsCount = (newMinimum, newBalance)}
 
-    member x.ExecuteInstruction (cfg : cfg) (offset : offset) (cilState : cilState) =
+    member x.ExecuteInstruction (cfg : cfg) (offset : offset) (cilState : cilState) : cilState list =
         let m = cfg.methodBase
         let opCode = Instruction.parseInstruction cfg.ilBytes offset
         let newOffsets : ip list =
