@@ -301,7 +301,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 let this = Memory.ReadThis cilState.state calledMethod
                 let args = calledMethod.GetParameters() |> Seq.map (Memory.ReadArgument cilState.state) |> List.ofSeq
                 // Popping frame created for ancestor calledMethod
-                let state = popStackOf cilState
+                let cilState = popStackOf cilState
                 // Creating valid frame with stackKeys corresponding to actual targetMethod
                 methodInterpreter.ReduceFunctionSignature cilState.state targetMethod (Some this) (Specified args) false (fun rightState ->
                 x.ReduceMethodBaseCall targetMethod {cilState with state = rightState} k)
