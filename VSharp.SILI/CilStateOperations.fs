@@ -46,6 +46,15 @@ module internal CilStateOperations =
         | [] when ip.label = Exit -> cilState
         | _ -> __unreachable__()
 
+    let findNextIp (ip : ip) =
+        let offset =
+            match ip.label with
+            | Instruction offset -> offset
+            | _ -> __unreachable__()
+        let nextIps = CFG.findNextIps ip.method offset
+        assert(List.length nextIps = 1)
+        List.head nextIps
+
     let compose (cilState1 : cilState) (cilState2 : cilState) =
         assert(currentIp cilState1 = cilState2.startingIP)
 
@@ -55,11 +64,19 @@ module internal CilStateOperations =
                 PersistentDict.add k (v + oldValue) acc
             ) cilState1.level cilState2.level
 
+        let ip =
+            match cilState2.ip, cilState1.ip with
+            | [{method = _; label = Exit}], _ :: [] -> cilState2.ip
+            | [{method = _; label = Exit}], _ :: ip' :: ips  -> findNextIp ip' :: ips
+            | ip, _ :: ips -> ip @ ips
+            | _, [] -> __unreachable__()
+
+
         let states = Memory.ComposeStates cilState1.state cilState2.state id
         let leftOpStack = List.skip (-1 * fst cilState2.popsCount) cilState1.state.opStack
         let makeResultState (state : state) =
             let state' = {state with opStack = leftOpStack @ state.opStack}
-            {cilState2 with state = state'; level = level; popsCount = cilState1.popsCount}
+            {cilState2 with state = state'; ip = ip; level = level; popsCount = cilState1.popsCount}
         List.map makeResultState states
 
     let incrementLevel (cilState : cilState) k =

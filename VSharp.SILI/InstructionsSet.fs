@@ -275,7 +275,7 @@ module internal InstructionsSet =
         | t :: _ -> pushToOpStack t cilState |> List.singleton
         | _ -> __corruptedStack__()
 
-    let ret (cfg : cfgData) _ (cilState : cilState) : cilState list =
+    let ret (cfg : cfgData) _ _ (cilState : cilState) : cilState list =
         let resultTyp =
             match cfg.methodBase with
             | :? ConstructorInfo -> Void
@@ -290,17 +290,14 @@ module internal InstructionsSet =
                 action castedResult cilState, Some castedResult
 
         match List.tail cilState.ip with
-        | [] -> cilState |> moveCurrentIp (exit cfg.methodBase)
-                |> withCurrentTime [] // TODO: #ask Misha
+        | [] -> cilState |> moveCurrentIp (exit cfg.methodBase) // TODO: add popStackOf here (golds will change)
+                |> withCurrentTime [] // TODO: #ask Misha about current time
         | ip :: ips ->
             let offset = ip.Offset()
             let callSite = Instruction.parseCallSite ip.method offset
-            let nextIps = findNextIps ip.method offset
-            assert(List.length nextIps = 1)
-            let ip' = List.head nextIps
-            {cilState with ip = ip' :: ips} |> addToCallSiteResults callSite result
-        |> popStackOf |> List.singleton
-
+            let ip' = findNextIp ip
+            {cilState with ip = ip' :: ips} |> addToCallSiteResults callSite result |> popStackOf
+        |> List.singleton
 
     let transform2BooleanTerm pc (term : term) =
         let check term =
@@ -566,16 +563,10 @@ module internal InstructionsSet =
     let endfinally _ _ (cilState : cilState) =
         cilState |> withOpStack [] |> List.singleton
     let zipWithOneOffset op cfgData offset newIps cilState =
-        assert (List.length newIps = 1)
+        assert(List.length newIps = 1)
         let newIp = List.head newIps
         let cilStates = op cfgData offset cilState
         List.map (moveCurrentIp newIp) cilStates
-
-    let zipWithOneOffsetForCall op cfgData offset newOffsets cilState =
-        assert (List.length newOffsets = 1)
-        let newOffset = List.head newOffsets
-        let cilStates = op cfgData offset newOffset cilState
-        cilStates
 
     let opcode2Function : (cfgData -> offset -> ip list -> cilState -> cilState list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
     opcode2Function.[hashFunction OpCodes.Br]                 <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []
@@ -634,7 +625,7 @@ module internal InstructionsSet =
     opcode2Function.[hashFunction OpCodes.Ldloc_S]            <- zipWithOneOffset <| ldloc (fun ilBytes offset -> NumberCreator.extractUnsignedInt8 ilBytes (offset + OpCodes.Ldloc_S.Size) |> int)
     opcode2Function.[hashFunction OpCodes.Ldloca]             <- zipWithOneOffset <| ldloca (fun ilBytes offset -> NumberCreator.extractUnsignedInt16 ilBytes (offset + OpCodes.Ldloca.Size) |> int)
     opcode2Function.[hashFunction OpCodes.Ldloca_S]           <- zipWithOneOffset <| ldloca (fun ilBytes offset -> NumberCreator.extractUnsignedInt8 ilBytes (offset + OpCodes.Ldloca_S.Size) |> int)
-    opcode2Function.[hashFunction OpCodes.Ret]                <- zipWithOneOffset <| ret
+    opcode2Function.[hashFunction OpCodes.Ret]                <- ret
     opcode2Function.[hashFunction OpCodes.Dup]                <- zipWithOneOffset <| fun _ _ -> dup
 
     // branching

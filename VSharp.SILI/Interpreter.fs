@@ -21,7 +21,7 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
             | _ -> __unreachable__()
         CFG.findCfg m
 
-    member x.Interpret (funcId : IFunctionIdentifier) (initialState : cilState) =
+    member x.Interpret (_ : IFunctionIdentifier) (initialState : cilState) =
         let q = IndexedQueue()
         q.Add initialState
 
@@ -32,7 +32,7 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
                 let goodStates, incompleteStates, errors = ILInterpreter(x).ExecuteOnlyOneInstruction cfg s
                 goodStates @ incompleteStates @ errors
             | Compose states -> List.map (compose s) states |> List.concat
-            |> List.iter (q.Add)
+            |> List.iter q.Add
 
         let rec iter s =
             q.Remove s
@@ -49,9 +49,9 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
 
 and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
     do
-        opcode2Function.[hashFunction OpCodes.Call]           <- zipWithOneOffsetForCall <| this.Call
-        opcode2Function.[hashFunction OpCodes.Callvirt]       <- zipWithOneOffsetForCall <| this.CallVirt
-        opcode2Function.[hashFunction OpCodes.Newobj]         <- zipWithOneOffsetForCall <| this.NewObj
+        opcode2Function.[hashFunction OpCodes.Call]           <- this.Call
+        opcode2Function.[hashFunction OpCodes.Callvirt]       <- this.CallVirt
+        opcode2Function.[hashFunction OpCodes.Newobj]         <- this.NewObj
         opcode2Function.[hashFunction OpCodes.Ldsfld]         <- zipWithOneOffset <| this.LdsFld false
         opcode2Function.[hashFunction OpCodes.Ldsflda]        <- zipWithOneOffset <| this.LdsFld true
         opcode2Function.[hashFunction OpCodes.Stsfld]         <- zipWithOneOffset <| this.StsFld
@@ -370,15 +370,15 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         | false ->
             let this = Memory.ReadThis cilState.state calledMethodBase
             x.NpeOrInvokeStatementCIL cilState this call k
-    member x.RetrieveCalledMethodAndArgs (cfg : cfg) offset opCode newIp (cilState : cilState) =
+    member x.RetrieveCalledMethodAndArgs (cfg : cfg) offset opCode (cilState : cilState) =
         let calledMethodBase = resolveMethodFromMetadata cfg (offset + OpCodes.Call.Size)
         let args, cilState = retrieveActualParameters calledMethodBase cilState
         let this, cilState = if calledMethodBase.IsStatic || opCode = OpCodes.Newobj then None, cilState
                              else popOperationalStack cilState |> mapfst Some
         calledMethodBase, this, args, cilState
 
-    member x.Call (cfg : cfg) offset newIp (cilState : cilState) =
-        let calledMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Call newIp cilState
+    member x.Call (cfg : cfg) offset _ (cilState : cilState) =
+        let calledMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Call cilState
         methodInterpreter.ReduceFunctionSignature cilState.state calledMethod this (Specified args) false (fun state ->
         x.CommonCall calledMethod (withState state cilState) id)
      member x.CommonCallVirt (ancestorMethodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
@@ -393,8 +393,8 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             else
                 x.ReduceMethodBaseCall ancestorMethodBase cilState id) >> List.concat >> k)
         x.NpeOrInvokeStatementCIL cilState this call k
-    member x.CallVirt (cfg : cfg) offset newOffset (cilState : cilState) =
-        let ancestorMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Callvirt newOffset cilState
+    member x.CallVirt (cfg : cfg) offset _ (cilState : cilState) =
+        let ancestorMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Callvirt cilState
         // NOTE: It is not quite strict to ReduceFunctionSignature here because, but it does not matter because signatures of virtual methods are the same
         methodInterpreter.ReduceFunctionSignature cilState.state ancestorMethod this (Specified args) false (fun state ->
         x.CommonCallVirt ancestorMethod (withState state cilState) id)
@@ -455,8 +455,8 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             then x.CommonCreateDelegate constructorInfo cilState args k
             else nonDelegateCase cilState |> k
 
-    member x.NewObj (cfg : cfg) offset newIp (cilState : cilState) =
-        let calledMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Newobj newIp cilState
+    member x.NewObj (cfg : cfg) offset _ (cilState : cilState) =
+        let calledMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Newobj cilState
         assert(calledMethod.IsConstructor)
         assert(Option.isNone this)
         let constructorInfo = calledMethod :?> ConstructorInfo
