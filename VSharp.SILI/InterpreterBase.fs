@@ -10,6 +10,8 @@ open VSharp.Core
 open System.Collections.Generic
 open System.Reflection
 open VSharp.System
+open CilStateOperations
+open ipOperations
 
 type codeLocationSummary = { cilState : cilState } // state.returnRegister is used as result
     with
@@ -52,17 +54,19 @@ type public ExplorerBase() =
             CurrentlyBeingExploredLocations.Remove funcId |> ignore
             k resultsAndStates
 
-    member private x.ReproduceEffectOrUnroll areWeStuck body (id : IFunctionIdentifier) cilState k =
-        if areWeStuck then
-            try
-                x.ReproduceEffect id cilState k
-            with
-            | :? InsufficientInformationException ->
-//                body cilState (List.map (CilStateOperations.withCurrentTime cilState.state.currentTime) >> k)
-                body cilState k
-        else
-            /// explicitly unrolling
-            body cilState k
+    member private x.ReproduceEffectOrUnroll areWeStuck body (id : IFunctionIdentifier) (cilState : cilState) k =
+        // every exploration should be made via searcher
+        __unreachable__()
+//        if areWeStuck then
+//            try
+//                x.ReproduceEffect id cilState k
+//            with
+//            | :? InsufficientInformationException ->
+////                body cilState (List.map (CilStateOperations.withCurrentTime cilState.state.currentTime) >> k)
+//                body cilState k
+//        else
+//            /// explicitly unrolling
+//            body cilState k
 
     member x.EnterRecursiveRegion (funcId : IFunctionIdentifier) cilState body k =
         let shouldStopUnrolling = x.ShouldStopUnrolling funcId cilState
@@ -155,12 +159,12 @@ type public ExplorerBase() =
                 let cilStates =
                     match staticConstructor with
                     | Some cctor ->
-                        let removeCallSiteResultAndPopStack (cilStateAfterCallingCCtor : cilState) =
-                            let stateAfterCallingCCtor = Memory.PopStack cilStateAfterCallingCCtor.state
-                            let stateWithoutCallSiteResult = {stateAfterCallingCCtor with callSiteResults = state.callSiteResults; opStack = state.opStack}
-                            {cilStateAfterCallingCCtor with state = stateWithoutCallSiteResult}
+//                        let removeCallSiteResultAndPopStack (cilStateAfterCallingCCtor : cilState) =
+//                            let stateAfterCallingCCtor = Memory.PopStack cilStateAfterCallingCCtor.state
+//                            let stateWithoutCallSiteResult = {stateAfterCallingCCtor with callSiteResults = state.callSiteResults; opStack = state.opStack}
+//                            {cilStateAfterCallingCCtor with state = stateWithoutCallSiteResult}
                         x.ReduceFunctionSignature state cctor None (Specified []) false (fun state ->
-                        x.ReduceFunction cctor {cilState with state = state} (List.map removeCallSiteResultAndPopStack))
+                        cilState |> withState state |> addIp (instruction cctor 0) |> List.singleton |> id)
                     | None -> {cilState with state = state } |> List.singleton
                 k cilStates // TODO: make assumption ``Memory.withPathCondition state (!!typeInitialized)''
 

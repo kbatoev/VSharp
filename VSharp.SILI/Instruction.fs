@@ -179,15 +179,16 @@ module internal Instruction =
     let (|NewObj|_|) (opCode : OpCode) = if opCode = OpCodes.Newobj then Some () else None
 
 
-    let parseInstruction (ilBytes : byte []) pos =
+    let parseInstruction (m : MethodBase) pos =
+        let ilBytes = m.GetMethodBody().GetILAsByteArray()
         let b1 = ilBytes.[pos]
         if isSingleByteOpCode b1 then singleByteOpCodes.[int b1]
         elif pos + 1 >= ilBytes.Length then raise (IncorrectCIL("Prefix instruction FE without suffix!"))
         else twoBytesOpCodes.[int ilBytes.[pos + 1]]
 
     let parseCallSite (m : MethodBase) pos =
+        let opCode = parseInstruction m pos
         let ilBytes = m.GetMethodBody().GetILAsByteArray()
-        let opCode = parseInstruction ilBytes pos
         let calledMethod = resolveMethodFromMetadata m ilBytes (pos + opCode.Size)
         {sourceMethod = m; calledMethod = calledMethod; opCode = opCode; offset = pos}
 

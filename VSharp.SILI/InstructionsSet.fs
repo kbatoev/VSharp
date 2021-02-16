@@ -275,6 +275,11 @@ module internal InstructionsSet =
         | t :: _ -> pushToOpStack t cilState |> List.singleton
         | _ -> __corruptedStack__()
 
+    let isCallIp (ip : ip) =
+        let offset = ip.Offset()
+        let opCode = Instruction.parseInstruction ip.method offset
+        Instruction.isDemandingCallOpCode opCode
+
     let ret (cfg : cfgData) _ _ (cilState : cilState) : cilState list =
         let resultTyp =
             match cfg.methodBase with
@@ -292,11 +297,15 @@ module internal InstructionsSet =
         match List.tail cilState.ip with
         | [] -> cilState |> moveCurrentIp (exit cfg.methodBase) // TODO: add popStackOf here (golds will change)
                 |> withCurrentTime [] // TODO: #ask Misha about current time
-        | ip :: ips ->
+        | ip :: ips when isCallIp ip ->
             let offset = ip.Offset()
             let callSite = Instruction.parseCallSite ip.method offset
             let ip' = findNextIp ip
             {cilState with ip = ip' :: ips} |> addToCallSiteResults callSite result |> popStackOf
+        | ip :: ips ->
+            let offset = ip.Offset()
+            let opCode = Instruction.parseInstruction ip.method offset
+            __notImplemented__()
         |> List.singleton
 
     let transform2BooleanTerm pc (term : term) =

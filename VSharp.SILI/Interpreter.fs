@@ -181,11 +181,18 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let args = methodBase.GetParameters() |> Seq.map (Memory.ReadArgument s) |> List.ofSeq
         let fullMethodName = Reflection.GetFullMethodName methodBase
         let (&&&) = Microsoft.FSharp.Core.Operators.(&&&)
+        let moveIp (cilState : cilState) =
+            let ip, ips =
+                match cilState.ip with
+                | ip :: ips -> ip, ips
+                | _ -> __unreachable__()
+            {cilState with ip = findNextIp ip :: ips}
+
         if Map.containsKey fullMethodName internalImplementations then
-            (internalImplementations.[fullMethodName] cilState thisOption args) |> k
+            (internalImplementations.[fullMethodName] cilState thisOption args) |> (List.map (popStackOf >> moveIp) >> k)
         elif Map.containsKey fullMethodName Loader.internalImplementations then
             let thisAndArguments = optCons args thisOption
-            internalCall Loader.internalImplementations.[fullMethodName] thisAndArguments s (List.map (changeState cilState) >> k)
+            internalCall Loader.internalImplementations.[fullMethodName] thisAndArguments s (List.map (changeState cilState >> popStackOf >> moveIp) >> k)
         elif Map.containsKey fullMethodName Loader.concreteExternalImplementations then
             // TODO: check that all parameters were specified
             let methodInfo = Loader.concreteExternalImplementations.[fullMethodName]
@@ -1036,7 +1043,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
 
     member x.ExecuteInstruction (cfg : cfg) (offset : offset) (cilState : cilState) : cilState list =
         let m = cfg.methodBase
-        let opCode = Instruction.parseInstruction cfg.ilBytes offset
+        let opCode = Instruction.parseInstruction m offset
         let newOffsets : ip list =
             if Instruction.isLeaveOpCode opCode || opCode = OpCodes.Endfinally
             then cfg.graph.[offset] |> Seq.map (instruction m) |> List.ofSeq

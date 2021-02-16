@@ -121,7 +121,7 @@ module public CFG =
             else
                 let wasAdded = used.Add(v)
                 assert(wasAdded)
-                let opCode = Instruction.parseInstruction ilBytes v
+                let opCode = Instruction.parseInstruction methodBase v
                 Logger.trace "CFG.dfs: Method = %s went to %d opCode = %O" (Reflection.GetFullMethodName methodBase) v opCode
                 data.opCodes.[v] <- opCode
 
@@ -205,7 +205,7 @@ module public CFG =
 
     let findNextIps m offset =
         let cfg = findCfg m
-        let opCode = Instruction.parseInstruction cfg.ilBytes offset
+        let opCode = Instruction.parseInstruction m offset
         let m = cfg.methodBase
         if Instruction.isLeaveOpCode opCode || opCode = OpCodes.Endfinally
         then cfg.graph.[offset] |> Seq.map (ipOperations.instruction m) |> List.ofSeq
