@@ -300,7 +300,7 @@ module internal InstructionsSet =
         | ip :: ips when isCallIp ip ->
             let offset = ip.Offset()
             let callSite = Instruction.parseCallSite ip.method offset
-            let ip' = findNextIp ip
+            let ip' = moveCurrentIp ip
             {cilState with ip = ip' :: ips} |> addToCallSiteResults callSite result |> popStackOf
         | ip :: ips ->
             let offset = ip.Offset()

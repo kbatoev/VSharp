@@ -186,7 +186,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 match cilState.ip with
                 | ip :: ips -> ip, ips
                 | _ -> __unreachable__()
-            {cilState with ip = findNextIp ip :: ips}
+            {cilState with ip = moveCurrentIp ip :: ips}
 
         if Map.containsKey fullMethodName internalImplementations then
             (internalImplementations.[fullMethodName] cilState thisOption args) |> (List.map (popStackOf >> moveIp) >> k)
