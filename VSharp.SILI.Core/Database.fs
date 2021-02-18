@@ -9,7 +9,7 @@ type label =
     | Exit
     | FindingHandler of offset // offset -- source of exception
 
-type ip = { label : label; method : MethodBase}
+type ipEntry = { label : label; method : MethodBase}
     with
     member x.CanBeExpanded () =
         match x.label with
@@ -20,7 +20,8 @@ type ip = { label : label; method : MethodBase}
         | Instruction i -> i
         | _              -> internalfail "Could not get vertex from destination"
 
-type level = pdict<ip, uint>
+type level = pdict<ipEntry, uint>
+type ip = ipEntry list
 
 module ipOperations =
     let exit m = {label = Exit; method = m}
@@ -28,8 +29,8 @@ module ipOperations =
     let findingHandler m i = {label = FindingHandler i; method = m}
     let withExit ip = {ip with label = Exit}
     let withOffset offset ip = {ip with label = Instruction offset}
-    let labelOf (ip : ip) = ip.label
-    let methodOf (ip : ip) = ip.method
+    let labelOf (ip : ipEntry) = ip.label
+    let methodOf (ip : ipEntry) = ip.method
 
 module Level =
     let zero : level = __notImplemented__()
@@ -66,7 +67,7 @@ type query =
         sprintf "{query [lvl %s]: %O}" (Level.toString x.lvl) x.queryFml
 
 type databaseId =
-    { m : MethodBase; ip : ip } with
+    { m : MethodBase; ip : ipEntry } with
     override x.ToString() =
         sprintf "%O.%O[ip=%O]" x.m.DeclaringType.FullName x.m.Name x.ip
 
@@ -75,7 +76,7 @@ module internal Database =
     let private paths = new Dictionary<databaseId, HashSet<path>>()
     let private queries = new Dictionary<databaseId, HashSet<query>>()
 
-    let idOfVertex (m : MethodBase) (ip : ip) : databaseId = { m=m; ip=ip }
+    let idOfVertex (m : MethodBase) (ip : ipEntry) : databaseId = { m=m; ip=ip }
 
     let addLemma (id : databaseId) (lemma : lemma) =
         let lemmas = Dict.tryGetValue2 lemmas id (fun () -> new HashSet<_>())
@@ -99,7 +100,7 @@ module internal Database =
         if not <| queries.Remove query then
             noQueryError()
 
-type Lemmas(m : MethodBase, ip : ip) =
+type Lemmas(m : MethodBase, ip : ipEntry) =
     let id = Database.idOfVertex m ip
     let parsed = new Dictionary<level, HashSet<lemma>>()
     member x.Add (lemma : lemma) =
@@ -107,7 +108,7 @@ type Lemmas(m : MethodBase, ip : ip) =
         let lemmas = Dict.tryGetValue2 parsed lemma.lvl (fun () -> new HashSet<_>())
         lemmas.Add lemma |> ignore
 
-type Paths(m : MethodBase, ip : ip) =
+type Paths(m : MethodBase, ip : ipEntry) =
     let id = Database.idOfVertex m ip
     let parsed = new Dictionary<level, HashSet<path>>()
     let used = HashSet<path>() // TODO: ``used'' set should be moved to Analyzer
@@ -123,7 +124,7 @@ type Paths(m : MethodBase, ip : ip) =
         paths
 
 
-type Queries(m : MethodBase, ip : ip) =
+type Queries(m : MethodBase, ip : ipEntry) =
     let id = Database.idOfVertex m ip
     let parsed = new Dictionary<level, HashSet<query>>()
     member x.Add (query : query) =

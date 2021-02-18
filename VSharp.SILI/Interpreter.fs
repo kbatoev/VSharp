@@ -43,7 +43,10 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
         searcher.GetResults initialState q
 
     override x.Invoke funcId initialState k =
-        x.InitializeStatics initialState funcId.Method.DeclaringType (List.map (x.Interpret funcId) >> List.concat >> k)
+        let cilStates = x.InitializeStatics initialState funcId.Method.DeclaringType List.singleton
+        assert(List.length cilStates = 1)
+        let cilState = List.head cilStates
+        x.Interpret funcId cilState |> k
 
     override x.MakeMethodIdentifier m = { methodBase = m } :> IMethodIdentifier
 
@@ -176,23 +179,26 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             k cilResults) k) id
         | _ -> internalfail "unexpected number of arguments"
     member private x.ReduceMethodBaseCall (methodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
+        // because we have correspondence between ips and frames
+        assert(let ip = currentIp cilState in ip.method = methodBase && ip.label = Instruction 0)
+
         let s = cilState.state
         let thisOption = if methodBase.IsStatic then None else Some <| Memory.ReadThis s methodBase
         let args = methodBase.GetParameters() |> Seq.map (Memory.ReadArgument s) |> List.ofSeq
         let fullMethodName = Reflection.GetFullMethodName methodBase
         let (&&&) = Microsoft.FSharp.Core.Operators.(&&&)
         let moveIp (cilState : cilState) =
-            let ip, ips =
+            let ip =
                 match cilState.ip with
-                | ip :: ips -> ip, ips
+                | ip :: _ -> {label = Exit; method = ip.method}
                 | _ -> __unreachable__()
-            {cilState with ip = moveCurrentIp ip :: ips}
+            cilState |> withLastIp ip
 
         if Map.containsKey fullMethodName internalImplementations then
-            (internalImplementations.[fullMethodName] cilState thisOption args) |> (List.map (popStackOf >> moveIp) >> k)
+            (internalImplementations.[fullMethodName] cilState thisOption args) |> (List.map moveIp >> k)
         elif Map.containsKey fullMethodName Loader.internalImplementations then
             let thisAndArguments = optCons args thisOption
-            internalCall Loader.internalImplementations.[fullMethodName] thisAndArguments s (List.map (changeState cilState >> popStackOf >> moveIp) >> k)
+            internalCall Loader.internalImplementations.[fullMethodName] thisAndArguments s (List.map (changeState cilState >> moveIp) >> k)
         elif Map.containsKey fullMethodName Loader.concreteExternalImplementations then
             // TODO: check that all parameters were specified
             let methodInfo = Loader.concreteExternalImplementations.[fullMethodName]
@@ -204,11 +210,11 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             let s = Memory.PopStack s
             let state = methodInterpreter.ReduceFunctionSignature s methodInfo thisOption (Specified args) false id
             // NOTE: callsite of cilState is explicitly untouched
-            cilState |> withState state |> addIp (instruction methodInfo 0) |> List.singleton |> k
+            cilState |> withState state |> withLastIp (instruction methodInfo 0) |> List.singleton |> k
         elif int (methodBase.GetMethodImplementationFlags() &&& MethodImplAttributes.InternalCall) <> 0 then
             internalfailf "new extern method: %s" fullMethodName
         elif methodBase.GetMethodBody() <> null then
-            cilState |> addIp (instruction methodBase 0) |> List.singleton |> k
+            cilState |> List.singleton |> k
         else
             internalfail "non-extern method without body!"
 
@@ -370,8 +376,8 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
 
     member x.CommonCall (calledMethodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
         let call cilState k =
-            methodInterpreter.InitializeStatics cilState calledMethodBase.DeclaringType (List.map (fun cilState ->
-            x.ReduceMethodBaseCall calledMethodBase cilState id) >> List.concat >> k)
+            methodInterpreter.InitializeStatics cilState calledMethodBase.DeclaringType (fun cilState ->
+            x.ReduceMethodBaseCall calledMethodBase cilState id) |> k
         match calledMethodBase.IsStatic with
         | true -> call cilState k
         | false ->
@@ -386,19 +392,19 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
 
     member x.Call (cfg : cfg) offset _ (cilState : cilState) =
         let calledMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Call cilState
-        methodInterpreter.ReduceFunctionSignature cilState.state calledMethod this (Specified args) false (fun state ->
-        x.CommonCall calledMethod (withState state cilState) id)
+        methodInterpreter.ReduceFunctionSignatureCIL cilState calledMethod this (Specified args) false (fun cilState ->
+        x.CommonCall calledMethod cilState id)
      member x.CommonCallVirt (ancestorMethodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
         let this = Memory.ReadThis cilState.state ancestorMethodBase
         let call (cilState : cilState) k =
-            methodInterpreter.InitializeStatics cilState ancestorMethodBase.DeclaringType (List.map (fun cilState ->
+            methodInterpreter.InitializeStatics cilState ancestorMethodBase.DeclaringType (fun cilState ->
             if ancestorMethodBase.DeclaringType.IsSubclassOf typedefof<System.Delegate> && ancestorMethodBase.Name = "Invoke" then
                 Lambdas.invokeDelegate cilState this id
             elif ancestorMethodBase.IsVirtual && not ancestorMethodBase.IsFinal then
                 let methodInfo = ancestorMethodBase :?> MethodInfo
                 x.CallVirtualMethod methodInfo cilState id
             else
-                x.ReduceMethodBaseCall ancestorMethodBase cilState id) >> List.concat >> k)
+                x.ReduceMethodBaseCall ancestorMethodBase cilState id) |> k
         x.NpeOrInvokeStatementCIL cilState this call k
     member x.CallVirt (cfg : cfg) offset _ (cilState : cilState) =
         let ancestorMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Callvirt cilState
@@ -454,10 +460,10 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             if Types.IsValueType constructedTermType then valueTypeCase cilState
             else referenceTypeCase cilState
         let nonDelegateCase (cilState : cilState) =
-            methodInterpreter.InitializeStatics cilState typ (List.map (fun cilState ->
+            methodInterpreter.InitializeStatics cilState typ (fun cilState ->
             if typ.IsArray && constructorInfo.GetMethodBody() = null
                 then x.ReduceArrayCreation typ cilState args id
-                else blockCase cilState) >> List.concat)
+                else blockCase cilState)
         if Reflection.IsDelegateConstructor constructorInfo
             then x.CommonCreateDelegate constructorInfo cilState args k
             else nonDelegateCase cilState |> k
@@ -472,13 +478,13 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
     member x.LdsFld addressNeeded (cfg : cfg) offset (cilState : cilState) =
         let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Ldsfld.Size)
         assert (fieldInfo.IsStatic)
-        methodInterpreter.InitializeStatics cilState fieldInfo.DeclaringType (List.map (fun cilState ->
+        methodInterpreter.InitializeStatics cilState fieldInfo.DeclaringType (fun cilState ->
         let declaringTermType = fieldInfo.DeclaringType |> Types.FromDotNetType cilState.state
         let fieldId = Reflection.wrapField fieldInfo
         let value = if addressNeeded
                     then StaticField(declaringTermType, fieldId) |> Ref
                     else Memory.ReadStaticField cilState.state declaringTermType fieldId
-        pushToOpStack value cilState :: []) >> List.concat)
+        pushToOpStack value cilState :: [])
     member private x.StsFld (cfg : cfg) offset (cilState : cilState) =
         let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Stsfld.Size)
         let state = cilState.state
@@ -487,11 +493,11 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let fieldId = Reflection.wrapField fieldInfo
         match state.opStack with
         | value :: stack ->
-            methodInterpreter.InitializeStatics cilState fieldInfo.DeclaringType (List.map (fun cilState ->
+            methodInterpreter.InitializeStatics cilState fieldInfo.DeclaringType (fun cilState ->
             let fieldType = fieldInfo.FieldType |> Types.FromDotNetType cilState.state
             let value = castUnchecked fieldType value cilState.state
             let state = Memory.WriteStaticField cilState.state declaringTermType fieldId value
-            cilState |> withState state |> withOpStack stack))
+            cilState |> withState state |> withOpStack stack |> List.singleton)
         | _ -> __corruptedStack__()
     member x.LdFld addressNeeded (cfg : cfg) offset (cilState : cilState) =
         let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Ldfld.Size)
@@ -987,7 +993,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             if cfg.sortedOffsets.[index] = lastOffset then cfg.ilBytes.Length
             else cfg.sortedOffsets.[index + 1]
 
-        let isIpOfCurrentBasicBlock (ip : ip) =
+        let isIpOfCurrentBasicBlock (ip : ipEntry) =
             match ip.label with
             | Instruction i when ip.method = cfg.methodBase -> startingOffset <= i && i < endOffset
             | _ -> false
@@ -997,27 +1003,23 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         x.ExecuteAllInstructionsWhile (always false) cfg cilState
 
     // returns finishedStates, incompleteStates, erroredStates
-    member x.ExecuteAllInstructionsWhile (condition : ip -> bool) (cfg : cfg) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
-        let ip = currentIp cilState
-        let startingOffset = ip.Offset()
-        let m = cfg.methodBase
-        let rec executeAllInstructions (finishedStates, incompleteStates, errors) (offset : offset) cilState =
+    member x.ExecuteAllInstructionsWhile (condition : ipEntry -> bool) (cfg : cfg) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
+        let rec executeAllInstructions (finishedStates, incompleteStates, errors) cilState =
+            let ip = currentIp cilState
             try
-                let allStates : cilState list = x.ExecuteInstruction cfg offset {cilState with iie = None}
+                let allStates : cilState list = x.ExecuteInstruction {cilState with iie = None}
                 let newErrors, goodStates = allStates |> List.partition (fun (cilState : cilState) -> cilState.HasException)
                 let errors = errors @ newErrors //TODO: check it
 
                 match goodStates with
                 | list when List.forall (currentIp >> condition) list ->
-                    List.fold (fun acc cilState ->
-                        let offset = (currentIp cilState).Offset()
-                        executeAllInstructions acc offset cilState) (finishedStates, incompleteStates, errors) list
+                    List.fold executeAllInstructions (finishedStates, incompleteStates, errors) list
                 | list -> list @ finishedStates, incompleteStates, errors
             with
             | :? InsufficientInformationException as iie ->
-                let iieCilState = { cilState with iie = Some iie} |> moveCurrentIp (instruction m offset)
+                let iieCilState = { cilState with iie = Some iie} |> withLastIp ip
                 finishedStates, iieCilState :: incompleteStates, errors
-        executeAllInstructions ([],[],[]) startingOffset cilState
+        executeAllInstructions ([],[],[]) cilState
 
     member x.IncrementLevelIfNeeded (cfg : cfg) (offset : offset) (cilState : cilState) : cilState =
         let isRecursiveVertex offset =
@@ -1041,25 +1043,18 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let newMinimum =  min newBalance oldMin
         {cilState with popsCount = (newMinimum, newBalance)}
 
-    member x.ExecuteInstruction (cfg : cfg) (offset : offset) (cilState : cilState) : cilState list =
-        let m = cfg.methodBase
-        let opCode = Instruction.parseInstruction m offset
-        let newOffsets : ip list =
-            if Instruction.isLeaveOpCode opCode || opCode = OpCodes.Endfinally
-            then cfg.graph.[offset] |> Seq.map (instruction m) |> List.ofSeq
-            else
-                let nextTargets = Instruction.findNextInstructionOffsetAndEdges opCode cfg.ilBytes offset
-                match nextTargets with
-                | UnconditionalBranch nextInstruction
-                | FallThrough nextInstruction -> instruction m nextInstruction :: []
-                | Return -> exit m :: []
-                | ExceptionMechanism -> findingHandler m offset :: []
-                | ConditionalBranch targets -> targets |> List.map (instruction m)
-        let newSts = opcode2Function.[hashFunction opCode] cfg offset newOffsets cilState
+    member x.ExecuteInstruction (cilState : cilState) =
+        match cilState.ip with
+        | {label = Instruction offset; method = m} :: _ ->
+            let cfg = CFG.findCfg m
+            let opCode = Instruction.parseInstruction m offset
+            let newIps = moveCurrentIp cilState |> List.map (fun cilState -> cilState.ip)
+            let newSts = opcode2Function.[hashFunction opCode] cfg offset newIps cilState
 
-        let renewInstructionsInfo cilState =
-            let cilState = x.RenewOpStackBalance opCode cfg offset cilState
-            //TODO: remove cilState.ip
-            x.IncrementLevelIfNeeded cfg offset cilState
-
-        newSts |> List.map renewInstructionsInfo
+            let renewInstructionsInfo cilState =
+                let cilState = x.RenewOpStackBalance opCode cfg offset cilState
+                x.IncrementLevelIfNeeded cfg offset cilState
+            newSts |> List.map renewInstructionsInfo
+        | {label = Exit} :: _ -> moveCurrentIp cilState
+        | [] -> __unreachable__()
+        | _ -> __notImplemented__()

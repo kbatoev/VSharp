@@ -8,18 +8,21 @@ open VSharp.Core.API
 open ipOperations
 
 type cilState =
-    { ip : ip list
+    { ip : ip
       state : state
       filterResult : term option
       iie : InsufficientInformationException option
       level : level
-      startingIP : ip
+      startingIP : ipEntry
       popsCount : int * int      // minimum and currentValue
     }
     member x.CanBeExpanded () =
         match x.ip with
-        | ip :: _ -> ip.CanBeExpanded()
-        | _ -> __unreachable__()
+        | {label = Instruction _} :: []
+        | _ :: _ :: _ -> true
+        | {label = Exit} :: [] -> false
+        | [] -> __unreachable__()
+        | _ -> true
     member x.HasException = Option.isSome x.state.exceptionsRegister.ExceptionTerm
 
 module internal CilStateOperations =
@@ -39,23 +42,26 @@ module internal CilStateOperations =
     let isIIEState (s : cilState) = Option.isSome s.iie
     let isError (s : cilState) = s.HasException
     let currentIp (s : cilState) = List.head s.ip
-    let addIp (ip : ip) (cilState : cilState) = {cilState with ip = ip :: cilState.ip}
+    let pushToIp (ip : ipEntry) (cilState : cilState) = {cilState with ip = ip :: cilState.ip}
 
-    let rec moveCurrentIp (ips : ip list) =
-        match ips with
-        | {label = Exit} :: ips -> moveCurrentIp ips
-        | {label = Instruction _} as ip :: ips ->
-            let nextIps = CFG.findNextIps ip
-            assert(List.length nextIps = 1)
-            List.head nextIps :: ips
+    let rec withLastIp (ip : ipEntry) (cilState : cilState) =
+        match cilState.ip with
+        | _ :: ips -> {cilState with ip = ip :: ips}
         | [] -> __unreachable__()
-        | _ -> __notImplemented__()
+//        | {label = Exit} :: ips -> moveCurrentIp ips
+//        | {label = Instruction _} as ip :: ips ->
+//            let nextIps = CFG.moveCurrentIp ip
+//            assert(List.length nextIps = 1)
+//            List.head nextIps :: ips
+//        | [] -> __unreachable__()
+//        | _ -> __notImplemented__()
+    let withIp (ip : ip) (cilState : cilState) = {cilState with ip = ip}
 
-    let composeIps (oldIps : ip list) (newIps : ip list) =
-        match newIps, oldIps with
-        | {label = Exit} :: [] as exit, [] -> exit
-        | {label = Exit} :: [], _ -> moveCurrentIp oldIps
-        | _ -> newIps @ oldIps
+    let composeIps (oldIp : ip) (newIp : ip) = newIp @ oldIp
+//        match newIps, oldIps with
+//        | {label = Exit} :: [] as exit, [] -> exit
+//        | {label = Exit} :: [], _ -> oldIps // no need to moveCurrentIp, maybe we want to execute current ip
+//        | _ -> newIps @ oldIps
 
     let compose (cilState1 : cilState) (cilState2 : cilState) =
         assert(currentIp cilState1 = cilState2.startingIP)
@@ -74,6 +80,8 @@ module internal CilStateOperations =
             {cilState2 with state = state'; ip = ip; level = level; popsCount = cilState1.popsCount
                             startingIP = cilState1.startingIP}
         List.map makeResultState states
+
+
 
     let incrementLevel (cilState : cilState) k =
         let lvl = cilState.level
@@ -98,11 +106,38 @@ module internal CilStateOperations =
     let withNoResult (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = None}}
     let withResultState result (state : state) = {state with returnRegister = Some result}
 
-
     let pushToOpStack v (cilState : cilState) = {cilState with state = {cilState.state with opStack = v :: cilState.state.opStack}}
 //    let addReturnPoint p (cilState : cilState) = {cilState with returnPoints = p :: cilState.returnPoints}
     let withException exc (cilState : cilState) = {cilState with state = {cilState.state with exceptionsRegister = exc}}
 
+    let rec moveCurrentIp (cilState : cilState) : cilState list =
+        match cilState.ip with
+        | {label = Instruction offset; method = m} :: _ ->
+            let cfg = CFG.findCfg m
+            let opCode = Instruction.parseInstruction m offset
+            let m = cfg.methodBase
+            let newIps =
+                if Instruction.isLeaveOpCode opCode || opCode = Emit.OpCodes.Endfinally
+                then cfg.graph.[offset] |> Seq.map (ipOperations.instruction m) |> List.ofSeq
+                else
+                    let nextTargets = Instruction.findNextInstructionOffsetAndEdges opCode cfg.ilBytes offset
+                    match nextTargets with
+                    | UnconditionalBranch nextInstruction
+                    | FallThrough nextInstruction -> ipOperations.instruction m nextInstruction :: []
+                    | Return -> ipOperations.exit m :: []
+                    | ExceptionMechanism -> ipOperations.findingHandler m offset :: []
+                    | ConditionalBranch targets -> targets |> List.map (ipOperations.instruction m)
+            List.map (fun ip -> withLastIp ip cilState) newIps
+        | {label = Exit} :: [] -> cilState :: []
+        | {label = Exit; method = m} :: ips' when m.IsConstructor && m.IsStatic -> {cilState with ip = ips'} :: []
+        | {label = Exit} :: ({label = Instruction offset; method = m} as ip) :: ips' ->
+            //TODO: assert(isCallIp ip)
+            let callSite = Instruction.parseCallSite m offset
+            let result = if callSite.HasNonVoidResult then cilState.state.opStack |> List.head |> Some else None
+            let cilState = cilState |> addToCallSiteResults callSite result |> popStackOf |> withIp (ip :: ips')
+            moveCurrentIp cilState
+        | {label = Exit} :: {label = Exit} :: _ -> __unreachable__()
+        | _ -> __notImplemented__()
 
     // ------------------------------- Helper functions for cilState -------------------------------
 
@@ -163,7 +198,7 @@ module internal CilStateOperations =
             let sb = dumpSection section sb
             PersistentDict.dump d sort keyToString valueToString |> sb.AppendLine
 
-    let ipAndMethodBase2String (ip : ip) =
+    let ipAndMethodBase2String (ip : ipEntry) =
         sprintf "Method: %O, label = %O" ip.method ip.label
 
     // TODO: print filterResult and IIE ?

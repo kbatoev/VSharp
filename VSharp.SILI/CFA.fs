@@ -214,7 +214,7 @@ module public CFA =
             else reference
         pushToOpStack valueOnStack cilState
 
-    type Vertex private(id, m : MethodBase, ip : ip, opStack : operationalStack) =
+    type Vertex private(id, m : MethodBase, ip : ipEntry, opStack : operationalStack) =
         static let ids : Dictionary<MethodBase, int> = Dictionary<_,_>()
         let lemmas = Lemmas(m, ip)
         let paths = Paths(m, ip)
@@ -403,7 +403,7 @@ module public CFA =
                         else { resultState with callSiteResults = initialState.callSiteResults; opStack = opStack}
 
                     if x.CommonFilterStates stateAfterCall then
-                        (resultCilState |> moveCurrentIp dst.Ip |> withState stateAfterCall) :: acc
+                        (resultCilState |> withLastIp dst.Ip |> withState stateAfterCall) :: acc
                     else acc
                 List.fold propagateStateAfterCall [] cilStates
 
@@ -430,9 +430,9 @@ module public CFA =
 
         [<CustomEquality; CustomComparison>]
         type bypassDataForEdges =
-            { u : ip
+            { u : ipEntry
               srcVertex : Vertex
-              v : ip
+              v : ipEntry
               uOut : int
               vOut : int
               minSCCs : int
@@ -577,17 +577,17 @@ module public CFA =
                 assert(cfg.graph.[offset].Count = 1)
                 {ip with label = Instruction cfg.graph.[offset].[0]}
 
-            let cilState = cilState |> moveCurrentIp nextIp |> withState stateWithArgsOnFrame
+            let cilState = cilState |> withLastIp nextIp |> withState stateWithArgsOnFrame
             cilState, callSite, numberToDrop
 
         // TODO: change offset to ip for Vertex
-        let private ip2Offset (ip : ip) =
+        let private ip2Offset (ip : ipEntry) =
             match ip.label with
             | Instruction i -> i
             | Exit -> -1
             | _ -> __notImplemented__()
 
-        let private createVertexIfNeeded methodBase opStack (v : ip) (vertices : pdict<ip * operationalStack, Vertex>)  =
+        let private createVertexIfNeeded methodBase opStack (v : ipEntry) (vertices : pdict<ipEntry * operationalStack, Vertex>)  =
             let concreteOpStack = List.filter shouldRemainOnOpStack opStack
             if PersistentDict.contains (v, concreteOpStack) vertices then
                 PersistentDict.find vertices (v, concreteOpStack), vertices
@@ -655,7 +655,7 @@ module public CFA =
         let private computeCFAForBlock (methodInterpreter : MethodInterpreter) (initialState : state) (cfa : cfa) (block : unitBlock<'a>) =
             let ilInterpreter = ILInterpreter(methodInterpreter)
             let cfg = cfa.cfg
-            let rec bypass (cfg : cfg) (q : IPriorityQueue<bypassDataForEdges>) (used : pset<bypassDataForEdges>) (vertices : pdict<ip * operationalStack, Vertex>) currentTime =
+            let rec bypass (cfg : cfg) (q : IPriorityQueue<bypassDataForEdges>) (used : pset<bypassDataForEdges>) (vertices : pdict<ipEntry * operationalStack, Vertex>) currentTime =
                 let d, q = PriorityQueue.pop q
                 assert(PersistentSet.contains d used)
                 let srcVertex = d.srcVertex

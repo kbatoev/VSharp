@@ -125,6 +125,9 @@ type public ExplorerBase() =
             | None -> parameters
         Memory.NewStackFrame state funcId (parametersAndThis @ locals) isEffect |> k // TODO: need to change FQL in "parametersAndThis" before adding it to stack frames (ClassesSimplePropertyAccess.TestProperty1) #FQLsNotEqual
 
+    member x.ReduceFunctionSignatureCIL (cilState : cilState) (methodBase : MethodBase) this paramValues isEffect k =
+        x.ReduceFunctionSignature cilState.state methodBase this paramValues isEffect (fun state ->
+        cilState |> withState state |> pushToIp (instruction methodBase 0) |> k)
 
 
     member private x.InitStaticFieldWithDefaultValue state (f : FieldInfo) =
@@ -143,30 +146,31 @@ type public ExplorerBase() =
                 Memory.WriteStaticField state targetType fieldId value
         else state
 
-    member x.InitializeStatics (cilState : cilState) (t : System.Type) (k : cilState list -> 'a) =
+    member x.InitializeStatics (cilState : cilState) (t : System.Type) whenInitializedCont : cilState list =
         let fields = t.GetFields(Reflection.staticBindingFlags)
-        let staticConstructor = t.GetConstructors(Reflection.staticBindingFlags) |> Array.tryHead
+
         match t with
-        | _ when t.IsGenericParameter -> k (List.singleton cilState)
+        | _ when t.IsGenericParameter -> whenInitializedCont cilState
         | _ ->
             let termType = t |> Types.FromDotNetType cilState.state
             let typeInitialized = Memory.IsTypeInitialized cilState.state termType
             match typeInitialized with
-            | True -> k (List.singleton cilState)
+            | True -> whenInitializedCont cilState
             | _ ->
+                let staticConstructor = t.GetConstructors(Reflection.staticBindingFlags) |> Array.tryHead
                 let state = Memory.InitializeStaticMembers cilState.state termType
                 let state = Seq.fold x.InitStaticFieldWithDefaultValue state fields
-                let cilStates =
-                    match staticConstructor with
-                    | Some cctor ->
+
+                match staticConstructor with
+                | Some cctor ->
 //                        let removeCallSiteResultAndPopStack (cilStateAfterCallingCCtor : cilState) =
 //                            let stateAfterCallingCCtor = Memory.PopStack cilStateAfterCallingCCtor.state
 //                            let stateWithoutCallSiteResult = {stateAfterCallingCCtor with callSiteResults = state.callSiteResults; opStack = state.opStack}
 //                            {cilStateAfterCallingCCtor with state = stateWithoutCallSiteResult}
-                        x.ReduceFunctionSignature state cctor None (Specified []) false (fun state ->
-                        cilState |> withState state |> addIp (instruction cctor 0) |> List.singleton |> id)
-                    | None -> {cilState with state = state } |> List.singleton
-                k cilStates // TODO: make assumption ``Memory.withPathCondition state (!!typeInitialized)''
+                    x.ReduceFunctionSignatureCIL cilState cctor None (Specified []) false (List.singleton)
+//                    staticConstructor, cilState
+                | None -> whenInitializedCont {cilState with state = state }
+                // TODO: make assumption ``Memory.withPathCondition state (!!typeInitialized)''
 
     member x.CallAbstractMethod (funcId : IFunctionIdentifier) state k =
         __insufficientInformation__ "Can't call abstract method %O, need more information about the object type" funcId
@@ -180,15 +184,20 @@ type public ExplorerBase() =
             | _ -> __notImplemented__()
         let thisIsNotNull = if Option.isSome this then !!(IsNullReference(Option.get this)) else Nop
         let state = if Option.isSome this && thisIsNotNull <> True then WithPathCondition state thisIsNotNull else state
+
         x.ReduceFunctionSignature state funcId.Method this Unspecified true (fun state ->  state, this, thisIsNotNull)
     member x.FormInitialState (funcId : IFunctionIdentifier) : (cilState * term option * term) list =
         let state, this, thisIsNotNull = x.FormInitialStateWithoutStatics funcId
         let cilState = CilStateOperations.makeInitialState funcId.Method state
-        x.InitializeStatics cilState funcId.Method.DeclaringType (List.map (fun cilState -> cilState, this, thisIsNotNull(*, isMethodOfStruct*)))
+        let cilStates = x.InitializeStatics cilState funcId.Method.DeclaringType (List.singleton)
+        match cilStates with
+        | cilState :: [] -> cilState, this, thisIsNotNull (*, isMethodOfStruct*)
+        | _ -> __unreachable__()
+        |> List.singleton //TODO: remove ``List.singleton''
 
     abstract CreateInstance : System.Type -> term list -> cilState -> cilState list
     default x.CreateInstance exceptionType arguments cilState =
-        x.InitializeStatics cilState exceptionType (List.map (fun cilState ->
+//        x.InitializeStatics cilState exceptionType (List.map (fun cilState ->
         let constructors = exceptionType.GetConstructors()
         let argumentsLength = List.length arguments
         let argumentsTypes =
@@ -208,7 +217,7 @@ type public ExplorerBase() =
         let withResult result (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = Some result}}
         x.ReduceFunctionSignature s ctor (Some reference) (Specified arguments) false (fun state ->
         x.ReduceFunction ctor {cilState with state = state} (fun cilStates ->
-        cilStates |> List.map (withResult reference)))) >> List.concat)
+        cilStates |> List.map (withResult reference)))
 
     member x.InvalidProgramException cilState =
         x.CreateInstance typeof<System.InvalidProgramException> [] cilState

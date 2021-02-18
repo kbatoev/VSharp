@@ -275,7 +275,7 @@ module internal InstructionsSet =
         | t :: _ -> pushToOpStack t cilState |> List.singleton
         | _ -> __corruptedStack__()
 
-    let isCallIp (ip : ip) =
+    let isCallIp (ip : ipEntry) =
         let offset = ip.Offset()
         let opCode = Instruction.parseInstruction ip.method offset
         Instruction.isDemandingCallOpCode opCode
@@ -294,19 +294,24 @@ module internal InstructionsSet =
                 let action = if List.length cilState.ip = 1 then withResult else pushToOpStack
                 action castedResult cilState, Some castedResult
 
-        match List.tail cilState.ip with
-        | [] -> cilState |> moveCurrentIp (exit cfg.methodBase) // TODO: add popStackOf here (golds will change)
-                |> withCurrentTime [] // TODO: #ask Misha about current time
-        | ip :: ips when isCallIp ip ->
-            let offset = ip.Offset()
-            let callSite = Instruction.parseCallSite ip.method offset
-            let ip' = moveCurrentIp ip
-            {cilState with ip = ip' :: ips} |> addToCallSiteResults callSite result |> popStackOf
-        | ip :: ips ->
-            let offset = ip.Offset()
-            let opCode = Instruction.parseInstruction ip.method offset
-            __notImplemented__()
-        |> List.singleton
+        match cilState.ip with
+        | ip :: ips -> {cilState with ip = {label = Exit; method = ip.method} :: ips} |> List.singleton
+        | [] -> __unreachable__()
+
+
+//        match List.tail cilState.ip with
+//        | [] -> cilState |> moveCurrentIp (exit cfg.methodBase) // TODO: add popStackOf here (golds will change)
+//                |> withCurrentTime [] // TODO: #ask Misha about current time
+//        | ip :: ips when isCallIp ip ->
+//            let offset = ip.Offset()
+//            let callSite = Instruction.parseCallSite ip.method offset
+//            let ip' = moveCurrentIp ip
+//            {cilState with ip = ip' :: ips} |> addToCallSiteResults callSite result |> popStackOf
+//        | ip :: ips ->
+//            let offset = ip.Offset()
+//            let opCode = Instruction.parseInstruction ip.method offset
+//            __notImplemented__()
+//        |> List.singleton
 
     let transform2BooleanTerm pc (term : term) =
         let check term =
@@ -349,24 +354,25 @@ module internal InstructionsSet =
             let states = Memory.WriteSafe cilState.state argTerm value
             states |> List.map (fun state -> cilState |> withState state |> withOpStack stack )
         | _ -> __corruptedStack__()
-    let brcommon condTransform offsets (cilState : cilState) =
+    let brcommon condTransform (ips : ip list) (cilState : cilState) =
         match cilState.state.opStack with
         | cond :: stack ->
-           let offsetThen, offsetElse =
-               match offsets with
-               | [offsetThen; offsetElse] -> offsetThen, offsetElse
+           let ipThen, ipElse =
+               match ips with
+               | [ipThen; ipElse] -> ipThen, ipElse
                | _ -> __unreachable__()
            let cilState = withOpStack stack cilState
            StatedConditionalExecutionCIL cilState
                (fun state k -> k (condTransform <| transform2BooleanTerm state.pc cond, state))
-               (fun cilState k -> k [moveCurrentIp offsetThen cilState])
-               (fun cilState k -> k [moveCurrentIp offsetElse cilState])
+               (fun cilState k -> k [withIp ipThen cilState])
+               (fun cilState k -> k [withIp ipElse cilState])
                id
         | _ -> __corruptedStack__()
     let brfalse = brcommon id
     let brtrue = brcommon (!!)
     let applyAndBranch errorStr additionalFunction brtrueFunction (cfg : cfgData) offset newOffsets (cilState : cilState) =
-        match additionalFunction cfg offset [instruction cfg.methodBase offset] cilState with
+        let newIps = [instruction cfg.methodBase offset] :: []
+        match additionalFunction cfg offset newIps cilState with
         | [st] -> brtrueFunction newOffsets st
         | _ -> internalfail errorStr
     let compare op operand1Transformation operand2Transformation (cilState : cilState) =
@@ -451,22 +457,22 @@ module internal InstructionsSet =
         let index = numberCreator cfg.ilBytes shiftedOffset
         let term, state, _ = getVarTerm cilState.state index cfg.methodBase
         pushResultOnOpStack cilState (term, state) :: []
-    let switch newOffsets (cilState : cilState) =
+    let switch newIps (cilState : cilState) =
         match cilState.state.opStack with
         | value :: stack ->
             let cilState = withOpStack stack cilState
-            let checkOneCase (guard, newOffset) cilState kRestCases =
+            let checkOneCase (guard, newIp) cilState kRestCases =
                 StatedConditionalExecutionCIL cilState
                     (fun state k -> k (guard, state))
-                    (fun cilState k -> k [moveCurrentIp newOffset cilState])
+                    (fun cilState k -> k [withIp newIp cilState])
                     (fun _ k -> kRestCases cilState k) // ignore pc because we always know that cases do not overlap
-            let fallThroughOffset, newOffsets = List.head newOffsets, List.tail newOffsets
-            let casesAndOffsets = List.mapi (fun i offset -> value === MakeNumber i, offset) newOffsets
+            let fallThroughIp, restIps = List.head newIps, List.tail newIps
+            let casesAndOffsets = List.mapi (fun i offset -> value === MakeNumber i, offset) restIps
             let fallThroughGuard = // TODO: [cast int :> uint] `value` should be compared as uint
-                let cond1 = Arithmetics.(>>=) value (List.length newOffsets |> MakeNumber)
+                let cond1 = Arithmetics.(>>=) value (List.length restIps |> MakeNumber)
                 let cond2 = Arithmetics.(<<) value TypeUtils.Int32.Zero // TODO: so no need to check this
                 cond1 ||| cond2
-            Cps.List.foldrk checkOneCase cilState ((fallThroughGuard, fallThroughOffset)::casesAndOffsets) (fun _ k -> k []) id
+            Cps.List.foldrk checkOneCase cilState ((fallThroughGuard, fallThroughIp)::casesAndOffsets) (fun _ k -> k []) id
         | _ -> __corruptedStack__()
     let ldtoken (cfg : cfgData) offset (cilState : cilState) =
         let memberInfo = resolveTokenFromMetadata cfg (offset + OpCodes.Ldtoken.Size)
@@ -575,7 +581,7 @@ module internal InstructionsSet =
         assert(List.length newIps = 1)
         let newIp = List.head newIps
         let cilStates = op cfgData offset cilState
-        List.map (moveCurrentIp newIp) cilStates
+        List.map (withIp newIp) cilStates
 
     let opcode2Function : (cfgData -> offset -> ip list -> cilState -> cilState list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
     opcode2Function.[hashFunction OpCodes.Br]                 <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []
