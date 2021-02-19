@@ -110,6 +110,19 @@ module internal CilStateOperations =
 //    let addReturnPoint p (cilState : cilState) = {cilState with returnPoints = p :: cilState.returnPoints}
     let withException exc (cilState : cilState) = {cilState with state = {cilState.state with exceptionsRegister = exc}}
 
+    let popOperationalStack (cilState : cilState) =
+        match cilState.state.opStack with
+        | t :: ts -> t, withOpStack ts cilState
+        | [] -> __unreachable__()
+
+    let pushNewObjForValueTypes (afterCall : cilState) =
+        let ref, cilState = popOperationalStack afterCall
+        let value = Memory.ReadSafe cilState.state ref
+        pushToOpStack value afterCall
+
+    let private isStaticConstructor (m : MethodBase) =
+        m.IsStatic && m.Name = ".cctor"
+
     let rec moveCurrentIp (cilState : cilState) : cilState list =
         match cilState.ip with
         | {label = Instruction offset; method = m} :: _ ->
@@ -129,13 +142,18 @@ module internal CilStateOperations =
                     | ConditionalBranch targets -> targets |> List.map (ipOperations.instruction m)
             List.map (fun ip -> withLastIp ip cilState) newIps
         | {label = Exit} :: [] -> cilState :: []
-        | {label = Exit; method = m} :: ips' when m.IsConstructor && m.IsStatic -> {cilState with ip = ips'} :: []
+        | {label = Exit; method = m} :: ips' when isStaticConstructor m -> {cilState with ip = ips'} :: []
         | {label = Exit} :: ({label = Instruction offset; method = m} as ip) :: ips' ->
             //TODO: assert(isCallIp ip)
             let callSite = Instruction.parseCallSite m offset
-            let result = if callSite.HasNonVoidResult then cilState.state.opStack |> List.head |> Some else None
-            let cilState = cilState |> addToCallSiteResults callSite result |> popStackOf |> withIp (ip :: ips')
-            moveCurrentIp cilState
+            let cilState =
+                if callSite.HasNonVoidResult then
+                    let result = cilState.state.opStack |> List.head |> Some
+                    addToCallSiteResults callSite result cilState
+                elif callSite.opCode = Emit.OpCodes.Newobj && callSite.calledMethod.DeclaringType.IsValueType then
+                    pushNewObjForValueTypes cilState
+                else cilState
+            cilState |> popStackOf |> withIp (ip :: ips') |> moveCurrentIp
         | {label = Exit} :: {label = Exit} :: _ -> __unreachable__()
         | _ -> __notImplemented__()
 

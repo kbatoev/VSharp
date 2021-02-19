@@ -178,10 +178,7 @@ module internal InstructionsSet =
         let term = castReferenceToPointerIfNeeded term typ state
         if API.Terms.TypeOf term = typ then term
         else Types.Cast term typ
-    let popOperationalStack (cilState : cilState) =
-        match cilState.state.opStack with
-        | t :: ts -> t, withOpStack ts cilState
-        | [] -> __unreachable__()
+
     let ldc numberCreator t (cfg : cfgData) shiftedOffset (cilState : cilState) =
         let num = numberCreator cfg.ilBytes shiftedOffset
         let termType = Types.FromDotNetType cilState.state t
@@ -286,13 +283,13 @@ module internal InstructionsSet =
             | :? ConstructorInfo -> Void
             | :? MethodInfo as mi -> mi.ReturnType |> Types.FromDotNetType cilState.state
             | _ -> __notImplemented__()
-        let cilState, result =
-            if resultTyp = Void then withNoResult cilState, None
+        let cilState =
+            if resultTyp = Void then withNoResult cilState
             else
                 let res, cilState = popOperationalStack cilState
                 let castedResult = castUnchecked resultTyp res cilState.state
-                let action = if List.length cilState.ip = 1 then withResult else pushToOpStack
-                action castedResult cilState, Some castedResult
+                let action = if List.length cilState.ip = 1 then withResult else pushToOpStack // TODO: always pushToOpStack
+                action castedResult cilState
 
         match cilState.ip with
         | ip :: ips -> {cilState with ip = {label = Exit; method = ip.method} :: ips} |> List.singleton

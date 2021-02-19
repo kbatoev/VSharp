@@ -51,7 +51,9 @@ module public CFG =
 
     let private createData (methodBase : MethodBase) =
         let mb = methodBase.GetMethodBody()
-        let size = mb.GetILAsByteArray().Length
+        if mb = null then ()
+        let array = mb.GetILAsByteArray()
+        let size = array.Length
         let interim = {
             fallThroughOffset = Array.init size (fun _ -> None)
             verticesOffsets = HashSet<_>()

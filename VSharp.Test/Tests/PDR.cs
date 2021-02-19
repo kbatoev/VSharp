@@ -109,6 +109,12 @@ namespace VSharp.Test.Tests
         }
 
         [TestSvm]
+        public static object CreateClassViaNewobj()
+        {
+            return new object();
+        }
+
+        [TestSvm]
         public static int NewarrAllocatesArrayWithConcreteAddress3()
         {
             int[] array = new int[10] {0, 1, 2, 3, 4, 42, 6, 7, 8, 9};

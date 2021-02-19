@@ -14,22 +14,14 @@ type cfg = CFG.cfgData
 type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpreter, funcId : IFunctionIdentifier, cfg : cfg*)) =
     inherit ExplorerBase()
 
-    member x.FindCfg (cilState : cilState) =
-        let m =
-            match cilState.ip with
-            | p :: _ -> p.method
-            | _ -> __unreachable__()
-        CFG.findCfg m
-
     member x.Interpret (_ : IFunctionIdentifier) (initialState : cilState) =
         let q = IndexedQueue()
         q.Add initialState
 
         let step s =
-            let cfg = x.FindCfg s
             match searcher.GetSearchDirection(s) with
             | Step ->
-                let goodStates, incompleteStates, errors = ILInterpreter(x).ExecuteOnlyOneInstruction cfg s
+                let goodStates, incompleteStates, errors = ILInterpreter(x).ExecuteOnlyOneInstruction s
                 goodStates @ incompleteStates @ errors
             | Compose states -> List.map (compose s) states |> List.concat
             |> List.iter q.Add
@@ -178,7 +170,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             let cilResults = List.map (fun state -> withState state cilState) results
             k cilResults) k) id
         | _ -> internalfail "unexpected number of arguments"
-    member private x.ReduceMethodBaseCall (methodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
+    member private x.InlineMethodBaseCallIfNeeded (methodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
         // because we have correspondence between ips and frames
         assert(let ip = currentIp cilState in ip.method = methodBase && ip.label = Instruction 0)
 
@@ -251,7 +243,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 let args = calledMethod.GetParameters() |> Seq.map (Memory.ReadArgument cilState.state) |> List.ofSeq
                 let cilState = popStackOf cilState
                 methodInterpreter.ReduceFunctionSignature cilState.state targetMethod (Some this) (Specified args) false (fun rightState ->
-                x.ReduceMethodBaseCall targetMethod {cilState with state = rightState} k)
+                x.InlineMethodBaseCallIfNeeded targetMethod {cilState with state = rightState} k)
 
     member x.CallVirtualMethod (ancestorMethod : MethodInfo) (cilState : cilState) (k : cilState list -> 'a) =
         let methodId = methodInterpreter.MakeMethodIdentifier ancestorMethod
@@ -375,39 +367,39 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
 //        | None -> cilState
 
     member x.CommonCall (calledMethodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
-        let call cilState k =
-            methodInterpreter.InitializeStatics cilState calledMethodBase.DeclaringType (fun cilState ->
-            x.ReduceMethodBaseCall calledMethodBase cilState id) |> k
+        let call cilState k = x.InlineMethodBaseCallIfNeeded calledMethodBase cilState k
         match calledMethodBase.IsStatic with
         | true -> call cilState k
         | false ->
             let this = Memory.ReadThis cilState.state calledMethodBase
             x.NpeOrInvokeStatementCIL cilState this call k
-    member x.RetrieveCalledMethodAndArgs (cfg : cfg) offset opCode (cilState : cilState) =
-        let calledMethodBase = resolveMethodFromMetadata cfg (offset + OpCodes.Call.Size)
+    member x.RetrieveCalledMethodAndArgs (opCode : OpCode) (calledMethodBase : MethodBase) (cilState : cilState) =
         let args, cilState = retrieveActualParameters calledMethodBase cilState
         let this, cilState = if calledMethodBase.IsStatic || opCode = OpCodes.Newobj then None, cilState
                              else popOperationalStack cilState |> mapfst Some
-        calledMethodBase, this, args, cilState
+        this, args, cilState
 
     member x.Call (cfg : cfg) offset _ (cilState : cilState) =
-        let calledMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Call cilState
+        let calledMethod = resolveMethodFromMetadata cfg (offset + OpCodes.Call.Size)
+        methodInterpreter.InitializeStatics cilState calledMethod.DeclaringType (fun cilState ->
+        let this, args, cilState = x.RetrieveCalledMethodAndArgs OpCodes.Call calledMethod cilState
         methodInterpreter.ReduceFunctionSignatureCIL cilState calledMethod this (Specified args) false (fun cilState ->
-        x.CommonCall calledMethod cilState id)
+        x.CommonCall calledMethod cilState id))
      member x.CommonCallVirt (ancestorMethodBase : MethodBase) (cilState : cilState) (k : cilState list -> 'a) =
         let this = Memory.ReadThis cilState.state ancestorMethodBase
         let call (cilState : cilState) k =
-            methodInterpreter.InitializeStatics cilState ancestorMethodBase.DeclaringType (fun cilState ->
             if ancestorMethodBase.DeclaringType.IsSubclassOf typedefof<System.Delegate> && ancestorMethodBase.Name = "Invoke" then
-                Lambdas.invokeDelegate cilState this id
+                Lambdas.invokeDelegate cilState this k
             elif ancestorMethodBase.IsVirtual && not ancestorMethodBase.IsFinal then
                 let methodInfo = ancestorMethodBase :?> MethodInfo
-                x.CallVirtualMethod methodInfo cilState id
+                x.CallVirtualMethod methodInfo cilState k
             else
-                x.ReduceMethodBaseCall ancestorMethodBase cilState id) |> k
+                x.InlineMethodBaseCallIfNeeded ancestorMethodBase cilState k
         x.NpeOrInvokeStatementCIL cilState this call k
     member x.CallVirt (cfg : cfg) offset _ (cilState : cilState) =
-        let ancestorMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Callvirt cilState
+        let ancestorMethod = resolveMethodFromMetadata cfg (offset + OpCodes.Call.Size)
+        let this, args, cilState = x.RetrieveCalledMethodAndArgs OpCodes.Callvirt ancestorMethod cilState
+        // NOTE: there is no need to initialize statics, because they were initialized before ``newobj'' execution
         // NOTE: It is not quite strict to ReduceFunctionSignature here because, but it does not matter because signatures of virtual methods are the same
         methodInterpreter.ReduceFunctionSignature cilState.state ancestorMethod this (Specified args) false (fun state ->
         x.CommonCallVirt ancestorMethod (withState state cilState) id)
@@ -430,7 +422,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 (fun cilState methodPtr k ->
                     BranchOnNullCIL cilState target
                         (x.Raise x.NullReferenceException)
-                        (x.ReduceMethodBaseCall (retrieveMethodInfo methodPtr))
+                        (x.InlineMethodBaseCallIfNeeded (retrieveMethodInfo methodPtr))
                         k)
 
         let typ = Types.FromDotNetType cilState.state ctor.DeclaringType
@@ -439,41 +431,73 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let state = withResultState deleg state
         withState state cilState |> List.singleton |> k)
     member x.CommonNewObj isCallNeeded (constructorInfo : ConstructorInfo) (cilState : cilState) (args : term list) (k : cilState list -> 'a) : 'a =
-        let typ = constructorInfo.DeclaringType
-        let constructedTermType = typ |> Types.FromDotNetType cilState.state
-        let blockCase (cilState : cilState) =
-            let callConstructor (cilState : cilState) reference afterCall =
-                if isCallNeeded then
-                    methodInterpreter.ReduceFunctionSignature cilState.state constructorInfo (Some reference) (Specified args) false (fun state ->
-                    x.ReduceMethodBaseCall constructorInfo (withState state cilState) afterCall)
-                else withResultState reference cilState.state |> changeState cilState |> List.singleton
-            let referenceTypeCase (cilState : cilState) =
-                let ref, state = Memory.AllocateDefaultClass cilState.state constructedTermType
-                callConstructor (withState state cilState) ref (List.map (withResult ref))
-            let valueTypeCase (cilState : cilState) =
-                let freshValue = Memory.DefaultOf constructedTermType
-                let ref, state = Memory.AllocateTemporaryLocalVariable cilState.state typ freshValue
-                let modifyResult (cilState : cilState) =
-                    let value = Memory.ReadSafe cilState.state ref
-                    withResult value cilState
-                callConstructor (withState state cilState) ref (List.map modifyResult)
-            if Types.IsValueType constructedTermType then valueTypeCase cilState
-            else referenceTypeCase cilState
-        let nonDelegateCase (cilState : cilState) =
-            methodInterpreter.InitializeStatics cilState typ (fun cilState ->
-            if typ.IsArray && constructorInfo.GetMethodBody() = null
-                then x.ReduceArrayCreation typ cilState args id
-                else blockCase cilState)
-        if Reflection.IsDelegateConstructor constructorInfo
-            then x.CommonCreateDelegate constructorInfo cilState args k
-            else nonDelegateCase cilState |> k
+        __notImplemented__()
+//        let typ = constructorInfo.DeclaringType
+//        let constructedTermType = typ |> Types.FromDotNetType cilState.state
+//        let blockCase (cilState : cilState) =
+//            let callConstructor (cilState : cilState) reference afterCall =
+//                if isCallNeeded then
+//                    methodInterpreter.ReduceFunctionSignatureCIL cilState constructorInfo (Some reference) (Specified args) false (fun cilState ->
+//                    x.InlineMethodBaseCallIfNeeded constructorInfo cilState afterCall)
+//                else withResultState reference cilState.state |> changeState cilState |> List.singleton
+//            let referenceTypeCase (cilState : cilState) =
+//                let ref, state = Memory.AllocateDefaultClass cilState.state constructedTermType
+//                callConstructor (withState state cilState) ref (List.map (pushToOpStack ref))
+//            let valueTypeCase (cilState : cilState) =
+//                let freshValue = Memory.DefaultOf constructedTermType
+//                let ref, state = Memory.AllocateTemporaryLocalVariable cilState.state typ freshValue
+//                let modifyResult (cilState : cilState) =
+//                    let value = Memory.ReadSafe cilState.state ref
+//                    pushToOpStack value cilState
+//                callConstructor (withState state cilState) ref (List.map modifyResult)
+//            if Types.IsValueType constructedTermType then valueTypeCase cilState
+//            else referenceTypeCase cilState
+//        let nonDelegateCase (cilState : cilState) =
+//            if typ.IsArray && constructorInfo.GetMethodBody() = null
+//                then x.ReduceArrayCreation typ cilState args id
+//                else blockCase cilState
+//        if Reflection.IsDelegateConstructor constructorInfo
+//            then x.CommonCreateDelegate constructorInfo cilState args k
+//            else nonDelegateCase cilState |> k
 
     member x.NewObj (cfg : cfg) offset _ (cilState : cilState) =
-        let calledMethod, this, args, cilState = x.RetrieveCalledMethodAndArgs cfg offset OpCodes.Newobj cilState
+        let calledMethod = resolveMethodFromMetadata cfg (offset + OpCodes.Newobj.Size)
         assert(calledMethod.IsConstructor)
-        assert(Option.isNone this)
+
         let constructorInfo = calledMethod :?> ConstructorInfo
-        x.CommonNewObj true constructorInfo cilState args id
+        let typ = constructorInfo.DeclaringType
+        methodInterpreter.InitializeStatics cilState constructorInfo.DeclaringType (fun cilState ->
+        let this, args, cilState = x.RetrieveCalledMethodAndArgs OpCodes.Newobj calledMethod cilState
+        assert(Option.isNone this)
+
+        let constructedTermType = typ |> Types.FromDotNetType cilState.state
+        let wasConstructorCalled (beforeCall : cilState) (afterCall : cilState) =
+               List.length afterCall.state.frames = List.length beforeCall.state.frames
+
+        let modifyValueResultIfConstructorWasCalled (beforeCall : cilState) (afterCall : cilState) =
+            if wasConstructorCalled beforeCall afterCall then pushNewObjForValueTypes afterCall
+            else afterCall
+
+        let blockCase (cilState : cilState) =
+            let callConstructor (cilState : cilState) reference afterCall =
+                methodInterpreter.ReduceFunctionSignatureCIL cilState constructorInfo (Some reference) (Specified args) false (fun cilState ->
+                x.InlineMethodBaseCallIfNeeded constructorInfo cilState afterCall)
+
+            if Types.IsValueType constructedTermType then
+                let freshValue = Memory.DefaultOf constructedTermType
+                let ref, state = Memory.AllocateTemporaryLocalVariable cilState.state typ freshValue
+                let cilState = cilState |> withState state |> pushToOpStack ref //NOTE: ref is used to retrieve constructed struct
+                callConstructor cilState ref (List.map (modifyValueResultIfConstructorWasCalled cilState))
+            else
+                let ref, state = Memory.AllocateDefaultClass cilState.state constructedTermType
+                let cilState = cilState |> withState state |> pushToOpStack ref //NOTE: ref is used as result afterCall
+                callConstructor cilState ref id
+
+        if Reflection.IsDelegateConstructor constructorInfo then
+            x.CommonCreateDelegate constructorInfo cilState args id
+        elif typ.IsArray && constructorInfo.GetMethodBody() = null then
+            x.ReduceArrayCreation typ cilState args id
+        else blockCase cilState)
 
     member x.LdsFld addressNeeded (cfg : cfg) offset (cilState : cilState) =
         let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Ldsfld.Size)
@@ -604,7 +628,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let hasValueCase (cilState : cilState) k =
             let valueMethodInfo = t.GetMethod("get_Value")
             methodInterpreter.ReduceFunctionSignature cilState.state valueMethodInfo (Some v) (Specified []) false (fun state ->
-            x.ReduceMethodBaseCall valueMethodInfo (withState state cilState) ((List.map boxValue) >> k))
+            x.InlineMethodBaseCallIfNeeded valueMethodInfo (withState state cilState) ((List.map boxValue) >> k))
         let boxNullable (hasValue, cilState : cilState) (k : cilState list -> 'a) =
             StatedConditionalExecutionAppendResultsCIL cilState
                 (fun state k -> k (hasValue, state))
@@ -613,7 +637,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 k
 
         methodInterpreter.ReduceFunctionSignature cilState.state hasValueMethodInfo (Some v) (Specified []) false (fun state ->
-        x.ReduceMethodBaseCall hasValueMethodInfo (withState state cilState) (fun hasValueResults ->
+        x.InlineMethodBaseCallIfNeeded hasValueMethodInfo (withState state cilState) (fun hasValueResults ->
         let hasValueResults = hasValueResults |> List.map (fun cilState -> Option.get cilState.state.returnRegister, cilState)
         Cps.List.mapk boxNullable hasValueResults (List.concat >> pushResultToOperationalStack)))
 
@@ -997,13 +1021,13 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             match ip.label with
             | Instruction i when ip.method = cfg.methodBase -> startingOffset <= i && i < endOffset
             | _ -> false
-        x.ExecuteAllInstructionsWhile isIpOfCurrentBasicBlock cfg cilState
+        x.ExecuteAllInstructionsWhile isIpOfCurrentBasicBlock cilState
 
-    member x.ExecuteOnlyOneInstruction (cfg : cfg) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
-        x.ExecuteAllInstructionsWhile (always false) cfg cilState
+    member x.ExecuteOnlyOneInstruction (cilState : cilState) : (cilState list * cilState list * cilState list)  =
+        x.ExecuteAllInstructionsWhile (always false) cilState
 
     // returns finishedStates, incompleteStates, erroredStates
-    member x.ExecuteAllInstructionsWhile (condition : ipEntry -> bool) (cfg : cfg) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
+    member x.ExecuteAllInstructionsWhile (condition : ipEntry -> bool) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
         let rec executeAllInstructions (finishedStates, incompleteStates, errors) cilState =
             let ip = currentIp cilState
             try
@@ -1044,6 +1068,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         {cilState with popsCount = (newMinimum, newBalance)}
 
     member x.ExecuteInstruction (cilState : cilState) =
+        Logger.trace "ExecuteInstruction:\n%s" (dump cilState)
         match cilState.ip with
         | {label = Instruction offset; method = m} :: _ ->
             let cfg = CFG.findCfg m

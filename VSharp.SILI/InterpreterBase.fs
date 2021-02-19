@@ -160,7 +160,7 @@ type public ExplorerBase() =
                 let staticConstructor = t.GetConstructors(Reflection.staticBindingFlags) |> Array.tryHead
                 let state = Memory.InitializeStaticMembers cilState.state termType
                 let state = Seq.fold x.InitStaticFieldWithDefaultValue state fields
-
+                let cilState = withState state cilState
                 match staticConstructor with
                 | Some cctor ->
 //                        let removeCallSiteResultAndPopStack (cilStateAfterCallingCCtor : cilState) =
@@ -169,7 +169,7 @@ type public ExplorerBase() =
 //                            {cilStateAfterCallingCCtor with state = stateWithoutCallSiteResult}
                     x.ReduceFunctionSignatureCIL cilState cctor None (Specified []) false (List.singleton)
 //                    staticConstructor, cilState
-                | None -> whenInitializedCont {cilState with state = state }
+                | None -> whenInitializedCont cilState
                 // TODO: make assumption ``Memory.withPathCondition state (!!typeInitialized)''
 
     member x.CallAbstractMethod (funcId : IFunctionIdentifier) state k =
