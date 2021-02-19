@@ -58,23 +58,17 @@ module TypeUtils =
     let private isLong = (=) typeof<int64>
     let private isULong = (=) typeof<uint64>
 
-    let isVerifierAssignable (leftType : Type) (rightType : Type) =
-        match box leftType, box rightType with
-        | _ when leftType = rightType -> true
-        | null, _ -> not rightType.IsValueType
-        | _, null -> false
-        | _ -> rightType.IsAssignableFrom(leftType)
+    let getTypeOfConcrete value =
+        assert(box value <> null)
+        value.GetType()
 
-    // TODO: use table "Implicit argument coercion" for implementation
+    // TODO: use table "Implicit argument coercion" for full implementation
     let canCoerce leftType rightType = isCoercing leftType && isCoercing rightType
 
-    let isConvertible (leftType : Type) rightType = // TODO: delete #do
+    let isConvertible (leftType : Type) rightType =
         typedefof<IConvertible>.IsAssignableFrom(leftType) && isPrimitive rightType
 
-    let canCast actualType (targetType : Type) = // TODO: delete #do
-        isVerifierAssignable actualType targetType || isConvertible actualType targetType
-
-    // [Info from spec] Coercion is implicit, it truncates bytes
+    // [Info from .NET specification] Coercion is implicit, it truncates bytes
     // TODO: ability to convert negative integers to UInt32 without overflowException
     // TODO: implement coercion for float types
     let coercion (value : obj) t =
@@ -104,7 +98,7 @@ module TypeUtils =
         | _ when t = typedefof<UInt64>  -> BitConverter.ToUInt64(bytes, 0)  :> obj
         | _ -> __notImplemented__()
 
-    // [Info from spec] Conversion is explicit (conv instruction)
+    // [Info from .NET specification] Conversion is explicit (conv instruction)
     // TODO: implement using conv.<type> information from specification (ecma)
     let convert (value : obj) (t : Type) =
         // TODO: overflow can be here

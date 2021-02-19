@@ -18,8 +18,8 @@ module internal SystemArray =
     let rec private length state arrayRef =
         GuardedApplyExpression arrayRef (fun arrayRef ->
             match arrayRef.term with
-            | HeapRef(_, typ) ->
-                let rank = Types.RankOf typ
+            | HeapRef(address, typ) ->
+                let rank = Terms.GetStrongestTypeOfHeapRef state address typ |> Types.RankOf
                 assert (rank >= 1)
                 let lengths = List.init rank (MakeNumber >> Memory.ArrayLengthByDimension state arrayRef)
                 match lengths with

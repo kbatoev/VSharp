@@ -433,6 +433,13 @@ namespace VSharp.Test.Tests.Typecast
         }
 
         [TestSvm]
+        public static int WriteInStructUsingNorm(Coord2 arg)
+        {
+            var y = (int) arg.Norm();
+            return arg.X + y; // arg.X should change
+        }
+
+        [TestSvm]
         public static int CastStructToInterfaceAndWriteInBoxed(Coord2 arg)
         {
             INormalize tmp = arg;

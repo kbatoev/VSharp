@@ -556,7 +556,7 @@ module internal InstructionsSet =
     let endfinally _ _ (cilState : cilState) =
         cilState |> withOpStack [] |> List.singleton
     let zipWithOneOffset op cfgData offset newOffsets cilState =
-        assert (List.length newOffsets = 1)
+        assert(List.length newOffsets = 1)
         let newOffset = List.head newOffsets
         let cilStates = op cfgData offset cilState
         List.map (withFst newOffset) cilStates

@@ -280,9 +280,21 @@ module internal Types =
         | Null -> __unreachable__()
         | t -> (toDotNetType t).IsValueType
 
-    let isConcreteSubtype t1 t2 = TypeUtils.isVerifierAssignable (toDotNetType t1) (toDotNetType t2)
+    let private commonCanCast canCast leftType rightType =
+        match leftType, rightType with
+        | _ when leftType = rightType -> true
+        | Null, _ -> not <| isValueType rightType
+        | _, Null -> false
+        | _ -> canCast (toDotNetType leftType) (toDotNetType rightType)
 
-    let canCoerce t1 t2 = TypeUtils.canCoerce (toDotNetType t1) (toDotNetType t2)
+    // Works like isVerifierAssignable in .NET specification
+    let isConcreteSubtype leftType rightType =
+        commonCanCast (fun leftType rightType -> rightType.IsAssignableFrom(leftType)) leftType rightType
+
+    let canCastImplicitly leftType rightType =
+        let canCast leftType (rightType : Type) =
+            rightType.IsAssignableFrom(leftType) || TypeUtils.canCoerce leftType rightType
+        commonCanCast canCast leftType rightType
 
 type symbolicType with
     interface IAtomicRegion<symbolicType> with

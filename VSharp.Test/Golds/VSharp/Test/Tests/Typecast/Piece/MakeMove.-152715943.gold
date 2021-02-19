@@ -1,6 +1,6 @@
 METHOD: VSharp.Test.Tests.Typecast.IMovable VSharp.Test.Tests.Typecast.Piece.MakeMove(VSharp.Test.Tests.Typecast.Coord)
 RESULT: Totally 1 state:
-(HeapRef this to VSharp.Test.Tests.Typecast.Piece)
+(HeapRef this to VSharp.Test.Tests.Typecast.IMovable)
 MEMORY DUMP:
 --------------- Fields: ---------------
 _xCoord ==> {this <- X}

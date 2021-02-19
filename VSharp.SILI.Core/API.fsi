@@ -47,6 +47,7 @@ module API =
 
         val TypeOf : term -> symbolicType
         val BaseTypeOfHeapRef : state -> term -> symbolicType
+        val GetStrongestTypeOfHeapRef : state -> term -> symbolicType -> symbolicType
 
         val IsStruct : term -> bool
         val IsReference : term -> bool

@@ -42,7 +42,7 @@ namespace VSharp.Test.Tests
         }
 
         [TestSvm]
-        public static object UnboxAny1()
+        public static B UnboxAny1()
         {
             var b = new B(5);
             return Cast<B>(b);
@@ -70,14 +70,14 @@ namespace VSharp.Test.Tests
         }
 
         [TestSvm]
-        public static object UnboxAny5()
+        public static uint[] UnboxAny5()
         {
             var a = new int[] {1, 2, 3};
             return Cast<uint[]>(a);
         }
 
         [TestSvm]
-        public static object UnboxAny6()
+        public static int[] UnboxAny6()
         {
             var a = new uint[] {1, 2, 3};
             return Cast<int[]>(a);
@@ -186,13 +186,6 @@ namespace VSharp.Test.Tests
 
         [TestSvm]
         public static object BoxValue(U t)
-        {
-            object o = t;
-            return o;
-        }
-
-        [TestSvm]
-        public static object BoxValue(V t)
         {
             object o = t;
             return o;

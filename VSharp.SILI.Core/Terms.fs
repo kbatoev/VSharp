@@ -181,7 +181,7 @@ and address =
     | PrimitiveStackLocation of stackKey
     | StructField of address * fieldId
     | StackBufferIndex of stackKey * term
-    | BoxedLocation of concreteHeapAddress * symbolicType
+    | BoxedLocation of concreteHeapAddress * symbolicType // TODO: mb delete type here? #do
     | ClassField of heapAddress * fieldId
     | ArrayIndex of heapAddress * term list * arrayType
     | ArrayLowerBound of heapAddress * term * arrayType
@@ -397,23 +397,24 @@ module internal Terms =
 
     // Only for concretes: there will never be null type
     let canCastConcrete (concrete : obj) targetType =
+        assert(not <| Types.isNull targetType)
         let targetType = Types.toDotNetType targetType
-        let actualType = if box concrete = null then targetType else concrete.GetType()
-        TypeUtils.isVerifierAssignable actualType targetType
+        let actualType = TypeUtils.getTypeOfConcrete concrete
+        actualType = targetType || targetType.IsAssignableFrom(actualType)
 
     let castConcrete (concrete : obj) (t : Type) = // TODO: split this into conversion, coercion and cast functions
-        let actualType = if box concrete = null then t else concrete.GetType()
+        let actualType = TypeUtils.getTypeOfConcrete concrete
         let functionIsCastedToMethodPointer () =
             typedefof<System.Reflection.MethodBase>.IsAssignableFrom(actualType) && typedefof<System.IntPtr>.IsAssignableFrom(t)
         if actualType = t then
             Concrete concrete (fromDotNetType t)
         elif t.IsEnum && t.GetEnumUnderlyingType().IsAssignableFrom(actualType) || actualType.IsEnum && actualType.GetEnumUnderlyingType().IsAssignableFrom(t) then
             Concrete concrete (fromDotNetType t)
-        elif typedefof<IConvertible>.IsAssignableFrom(actualType) && TypeUtils.isPrimitive t then
+        elif TypeUtils.isConvertible actualType t then
             let casted =
                 if t.IsPointer then IntPtr(Convert.ChangeType(concrete, typedefof<int64>) :?> int64) |> box
                 elif TypeUtils.canCoerce t actualType then TypeUtils.coercion concrete t
-                // it is needed for conversions from Int to Double (test: UnboxAny1)
+                // It is needed for conversions from Int to Double (test: UnboxAny1)
                 else TypeUtils.convert concrete t // TODO: if we need coercion then behavior is different from convert! (example: double)
             Concrete casted (fromDotNetType t)
         elif t.IsAssignableFrom(actualType) then

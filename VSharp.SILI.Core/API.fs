@@ -63,6 +63,7 @@ module API =
                     assert(List.forall ((=)t) ts)
                     t
             | _ -> internalfailf "reading type token: expected heap reference, but got %O" ref
+        let GetStrongestTypeOfHeapRef state address sightType = Memory.getStrongestTypeOfHeapRef state address sightType
 
         // TODO: maybe transfer time from interpreter?
         let MakeFunctionResultConstant state (callSite : callSite) =
@@ -122,7 +123,7 @@ module API =
         let IsCast state term targetType = TypeCasting.canCast state term targetType
         let canCastImplicitly term targetType =
             let actualType = TypeOf term
-            Types.canCoerce actualType targetType || Types.isConcreteSubtype actualType targetType // TODO: optimize #do
+            Types.canCastImplicitly actualType targetType
         let Cast term targetType = TypeCasting.cast term targetType
         let CastConcrete value typ = castConcrete value typ
         let CastReferenceToPointer state reference = TypeCasting.castReferenceToPointer state reference
