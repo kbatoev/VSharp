@@ -523,8 +523,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             let state = Memory.WriteStaticField cilState.state declaringTermType fieldId value
             cilState |> withState state |> withOpStack stack |> List.singleton)
         | _ -> __corruptedStack__()
-    member x.LdFld addressNeeded (cfg : cfg) offset (cilState : cilState) =
-        let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Ldfld.Size)
+    member x.LdFldWithFieldInfo (fieldInfo : FieldInfo) addressNeeded (cilState : cilState) =
         assert (not fieldInfo.IsStatic)
         match cilState.state.opStack with
         | target :: stack ->
@@ -535,6 +534,9 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 else Memory.ReadField cilState.state target fieldId |> k1
             x.NpeOrInvokeStatementCIL (withOpStack stack cilState) target loadWhenTargetIsNotNull id
         | _ -> __corruptedStack__()
+    member x.LdFld addressNeeded (cfg : cfg) offset (cilState : cilState) =
+        let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Ldfld.Size)
+        x.LdFldWithFieldInfo fieldInfo addressNeeded cilState
     member x.StFld (cfg : cfg) offset (cilState : cilState) =
         let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Stfld.Size)
         assert (not fieldInfo.IsStatic)
@@ -615,32 +617,28 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
 //                k [methodPtr, cilState]
 //            x.NpeOrInvokeStatement {cilState with opStack = stack} this ldvirtftn pushFunctionResults
 //        | _ -> __corruptedStack__()
-    member x.BoxNullable (t : System.Type) v (cilState : cilState) : cilState list =
-        __notImplemented__()
-//        // TODO: move it to Reflection.fs; add more validation in case if .NET implementation does not have these methods
-//        let boxValue (cilState : cilState) =
-//            match cilState.state.returnRegister with
-//            | None -> __unreachable__()
-//            | Some value ->
-//                let address, state = Memory.BoxValueType cilState.state value
-//                cilState |> withState state |> withResult address
-//
-//        let hasValueMethodInfo = t.GetMethod("get_HasValue")
-//        let hasValueCase (cilState : cilState) k =
-//            let valueMethodInfo = t.GetMethod("get_Value")
-//            methodInterpreter.ReduceFunctionSignature cilState.state valueMethodInfo (Some v) (Specified []) false (fun state ->
-//            x.InlineMethodBaseCallIfNeeded valueMethodInfo (withState state cilState) ((List.map boxValue) >> k))
-//        let boxNullable (hasValue, cilState : cilState) (k : cilState list -> 'a) =
-//            StatedConditionalExecutionAppendResultsCIL cilState
-//                (fun state k -> k (hasValue, state))
-//                hasValueCase
-//                (fun cilState k -> cilState |> withResult NullRef |> List.singleton |> k)
-//                k
-//
-//        methodInterpreter.ReduceFunctionSignatureCIL cilState hasValueMethodInfo (Some v) (Specified []) false (fun cilState ->
-//        x.InlineMethodBaseCallIfNeeded hasValueMethodInfo cilState (fun hasValueResults ->
-//        let hasValueResults = hasValueResults |> List.map (fun cilState -> Option.get cilState.state.returnRegister, cilState)
-//        Cps.List.mapk boxNullable hasValueResults (List.concat >> pushResultToOperationalStack)))
+
+    member x.BoxNullable (t : System.Type) (v : term) (cilState : cilState) : cilState list =
+        //TODO: move it to Reflection.fs; add more validation in case if .NET implementation does not have these fields
+        let boxValue (cilState : cilState) =
+            let value, cilState = popOperationalStack cilState
+            let address, state = Memory.BoxValueType cilState.state value
+            cilState |> withState state |> pushToOpStack address
+
+        let hasValueCase (cilState : cilState) k =
+            let valueFieldInfo = t.GetField("value", Reflection.instanceBindingFlags)
+            x.LdFldWithFieldInfo valueFieldInfo false (pushToOpStack v cilState) |> List.map boxValue |> k
+
+        let boxNullable (hasValue, cilState : cilState) (k : cilState list -> 'a) =
+            StatedConditionalExecutionAppendResultsCIL cilState
+                (fun state k -> k (hasValue, state))
+                hasValueCase
+                (fun cilState k -> cilState |> pushToOpStack NullRef |> List.singleton |> k)
+                k
+
+        let hasValueFieldInfo = t.GetField("hasValue", Reflection.instanceBindingFlags)
+        let hasValueResults = x.LdFldWithFieldInfo hasValueFieldInfo false (pushToOpStack v cilState) |> List.map popOperationalStack
+        Cps.List.mapk boxNullable hasValueResults (List.concat >> pushResultToOperationalStack)
 
 
     member x.Box (cfg : cfg) offset (cilState : cilState) =
@@ -704,7 +702,6 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         match cilState.state.opStack with
         | _ :: _ when t.IsGenericParameter -> __notImplemented__() // TODO: Nullable.GetUnderlyingType for generics; use meta-information of generic type parameter
         | obj :: stack ->
-            let state = {cilState.state with opStack = stack}
             x.UnboxCommon (withOpStack stack cilState) obj t id pushResultToOperationalStack
         | _ -> __corruptedStack__()
 

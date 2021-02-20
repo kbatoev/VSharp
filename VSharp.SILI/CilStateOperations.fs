@@ -118,7 +118,7 @@ module internal CilStateOperations =
     let pushNewObjForValueTypes (afterCall : cilState) =
         let ref, cilState = popOperationalStack afterCall
         let value = Memory.ReadSafe cilState.state ref
-        pushToOpStack value afterCall
+        pushToOpStack value cilState
 
     let private isStaticConstructor (m : MethodBase) =
         m.IsStatic && m.Name = ".cctor"
