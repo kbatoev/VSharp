@@ -5,7 +5,7 @@ open System.Text
 open System.Reflection
 open VSharp.Core
 open VSharp.Core.API
-open ipOperations
+open ipEntryOperations
 
 type cilState =
     { ip : ip
@@ -102,7 +102,7 @@ module internal CilStateOperations =
 
     let withState state (cilState : cilState) = {cilState with state = state}
     let changeState (cilState : cilState) state = {cilState with state = state}
-    let withResult result (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = Some result}}
+
     let withNoResult (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = None}}
     let withResultState result (state : state) = {state with returnRegister = Some result}
 
@@ -131,25 +131,31 @@ module internal CilStateOperations =
             let m = cfg.methodBase
             let newIps =
                 if Instruction.isLeaveOpCode opCode || opCode = Emit.OpCodes.Endfinally
-                then cfg.graph.[offset] |> Seq.map (ipOperations.instruction m) |> List.ofSeq
+                then cfg.graph.[offset] |> Seq.map (instruction m) |> List.ofSeq
                 else
                     let nextTargets = Instruction.findNextInstructionOffsetAndEdges opCode cfg.ilBytes offset
                     match nextTargets with
                     | UnconditionalBranch nextInstruction
-                    | FallThrough nextInstruction -> ipOperations.instruction m nextInstruction :: []
-                    | Return -> ipOperations.exit m :: []
-                    | ExceptionMechanism -> ipOperations.findingHandler m offset :: []
-                    | ConditionalBranch targets -> targets |> List.map (ipOperations.instruction m)
+                    | FallThrough nextInstruction -> instruction m nextInstruction :: []
+                    | Return -> exit m :: []
+                    | ExceptionMechanism -> findingHandler m offset :: []
+                    | ConditionalBranch targets -> targets |> List.map (instruction m)
             List.map (fun ip -> withLastIp ip cilState) newIps
-        | {label = Exit} :: [] -> cilState :: []
+        | {label = Exit} :: [] ->
+            // TODO: add popStackOf here (golds will change)
+            //|> withCurrentTime [] //TODO: #ask Misha about current time
+            cilState :: []
         | {label = Exit; method = m} :: ips' when isStaticConstructor m -> {cilState with ip = ips'} :: []
         | {label = Exit} :: ({label = Instruction offset; method = m} as ip) :: ips' ->
             //TODO: assert(isCallIp ip)
             let callSite = Instruction.parseCallSite m offset
             let cilState =
                 if callSite.HasNonVoidResult then
-                    let result = cilState.state.opStack |> List.head |> Some
-                    addToCallSiteResults callSite result cilState
+                    let result =
+                        match cilState.state.opStack with
+                        | res :: _ -> res
+                        | [] -> __unreachable__()
+                    addToCallSiteResults callSite (Some result) cilState
                 elif callSite.opCode = Emit.OpCodes.Newobj && callSite.calledMethod.DeclaringType.IsValueType then
                     pushNewObjForValueTypes cilState
                 else cilState

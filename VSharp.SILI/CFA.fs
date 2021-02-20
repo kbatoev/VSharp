@@ -9,7 +9,7 @@ open FSharpx.Collections
 open VSharp
 open VSharp.Core
 open CilStateOperations
-open ipOperations
+open ipEntryOperations
 
 module TermUtils =
     let internal term (t : term) = t.term

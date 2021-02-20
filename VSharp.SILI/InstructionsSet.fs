@@ -105,7 +105,7 @@ module internal TypeUtils =
 
 module internal InstructionsSet =
     open CilStateOperations
-    open ipOperations
+    open ipEntryOperations
 
     let __corruptedStack__() = raise (InvalidProgramException())
 
@@ -149,13 +149,13 @@ module internal InstructionsSet =
                 Logger.trace "InternalCall got exception %s" e.Message
                 raise e
 
-        let appendResultToState (term : term, state : state) =
+        let pushOnOpStack (term : term, state : state) =
             match term.term with
-            | Nop -> {state with returnRegister = None}
-            | _ -> {state with returnRegister = Some term}
+            | Nop -> state
+            | _ -> {state with opStack = term :: state.opStack}
         match result with
-        | :? (term * state) as r -> r |> appendResultToState |> List.singleton |> k
-        | :? ((term * state) list) as r -> r |> List.map appendResultToState |> k
+        | :? (term * state) as r -> r |> pushOnOpStack |> List.singleton |> k
+        | :? ((term * state) list) as r -> r |> List.map pushOnOpStack |> k
         | _ -> internalfail "internal call should return tuple term * state!"
 
 
@@ -288,6 +288,7 @@ module internal InstructionsSet =
             else
                 let res, cilState = popOperationalStack cilState
                 let castedResult = castUnchecked resultTyp res cilState.state
+                let withResult result (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = Some result}}
                 let action = if List.length cilState.ip = 1 then withResult else pushToOpStack // TODO: always pushToOpStack
                 action castedResult cilState
 

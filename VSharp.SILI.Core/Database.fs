@@ -23,7 +23,7 @@ type ipEntry = { label : label; method : MethodBase}
 type level = pdict<ipEntry, uint>
 type ip = ipEntry list
 
-module ipOperations =
+module ipEntryOperations =
     let exit m = {label = Exit; method = m}
     let instruction m i = {label = Instruction i; method = m}
     let findingHandler m i = {label = FindingHandler i; method = m}

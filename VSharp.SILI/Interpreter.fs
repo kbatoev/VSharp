@@ -7,7 +7,7 @@ open InstructionsSet
 open CilStateOperations
 open VSharp
 open VSharp.Core
-open ipOperations
+open ipEntryOperations
 
 type cfg = CFG.cfgData
 
@@ -142,7 +142,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         match args with
         | dimensionsKey :: [] ->
             let arrayLengthByDimension arrayRef index cilState (k : cilState list -> 'a) =
-                cilState |> withResult (Memory.ArrayLengthByDimension cilState.state arrayRef index) |> List.singleton |> k
+                cilState |> pushToOpStack (Memory.ArrayLengthByDimension cilState.state arrayRef index) |> List.singleton |> k
             x.AccessArrayDimension arrayLengthByDimension cilState (Option.get thisOption) dimensionsKey
         | _ -> internalfail "unexpected number of arguments"
 
@@ -150,7 +150,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         match args with
         | dimension :: [] ->
             let arrayLowerBoundByDimension arrayRef index (cilState : cilState) k =
-                cilState |> withResult (Memory.ArrayLowerBoundByDimension cilState.state arrayRef index) |> List.singleton |> k
+                cilState |> pushToOpStack (Memory.ArrayLowerBoundByDimension cilState.state arrayRef index) |> List.singleton |> k
             x.AccessArrayDimension arrayLowerBoundByDimension cilState (Option.get this) dimension
         | _ -> internalfail "unexpected number of arguments"
 
@@ -336,7 +336,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let term = castReferenceToPointerIfNeeded term typ cilState.state
         StatedConditionalExecutionAppendResultsCIL cilState
             (fun state k -> k (IsNullReference term ||| Types.IsCast typ term, state))
-            (fun cilState k -> cilState |> withResult (Types.Cast term typ) |> List.singleton |> k)
+            (fun cilState k -> cilState |> pushToOpStack (Types.Cast term typ) |> List.singleton |> k)
             (x.Raise x.InvalidCastException)
             k
     member private x.CastClass (cfg : cfg) offset (cilState : cilState) : cilState list =
@@ -616,30 +616,31 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
 //            x.NpeOrInvokeStatement {cilState with opStack = stack} this ldvirtftn pushFunctionResults
 //        | _ -> __corruptedStack__()
     member x.BoxNullable (t : System.Type) v (cilState : cilState) : cilState list =
-        // TODO: move it to Reflection.fs; add more validation in case if .NET implementation does not have these methods
-        let boxValue (cilState : cilState) =
-            match cilState.state.returnRegister with
-            | None -> __unreachable__()
-            | Some value ->
-                let address, state = Memory.BoxValueType cilState.state value
-                cilState |> withState state |> withResult address
-
-        let hasValueMethodInfo = t.GetMethod("get_HasValue")
-        let hasValueCase (cilState : cilState) k =
-            let valueMethodInfo = t.GetMethod("get_Value")
-            methodInterpreter.ReduceFunctionSignature cilState.state valueMethodInfo (Some v) (Specified []) false (fun state ->
-            x.InlineMethodBaseCallIfNeeded valueMethodInfo (withState state cilState) ((List.map boxValue) >> k))
-        let boxNullable (hasValue, cilState : cilState) (k : cilState list -> 'a) =
-            StatedConditionalExecutionAppendResultsCIL cilState
-                (fun state k -> k (hasValue, state))
-                hasValueCase
-                (fun cilState k -> cilState |> withResult NullRef |> List.singleton |> k)
-                k
-
-        methodInterpreter.ReduceFunctionSignature cilState.state hasValueMethodInfo (Some v) (Specified []) false (fun state ->
-        x.InlineMethodBaseCallIfNeeded hasValueMethodInfo (withState state cilState) (fun hasValueResults ->
-        let hasValueResults = hasValueResults |> List.map (fun cilState -> Option.get cilState.state.returnRegister, cilState)
-        Cps.List.mapk boxNullable hasValueResults (List.concat >> pushResultToOperationalStack)))
+        __notImplemented__()
+//        // TODO: move it to Reflection.fs; add more validation in case if .NET implementation does not have these methods
+//        let boxValue (cilState : cilState) =
+//            match cilState.state.returnRegister with
+//            | None -> __unreachable__()
+//            | Some value ->
+//                let address, state = Memory.BoxValueType cilState.state value
+//                cilState |> withState state |> withResult address
+//
+//        let hasValueMethodInfo = t.GetMethod("get_HasValue")
+//        let hasValueCase (cilState : cilState) k =
+//            let valueMethodInfo = t.GetMethod("get_Value")
+//            methodInterpreter.ReduceFunctionSignature cilState.state valueMethodInfo (Some v) (Specified []) false (fun state ->
+//            x.InlineMethodBaseCallIfNeeded valueMethodInfo (withState state cilState) ((List.map boxValue) >> k))
+//        let boxNullable (hasValue, cilState : cilState) (k : cilState list -> 'a) =
+//            StatedConditionalExecutionAppendResultsCIL cilState
+//                (fun state k -> k (hasValue, state))
+//                hasValueCase
+//                (fun cilState k -> cilState |> withResult NullRef |> List.singleton |> k)
+//                k
+//
+//        methodInterpreter.ReduceFunctionSignatureCIL cilState hasValueMethodInfo (Some v) (Specified []) false (fun cilState ->
+//        x.InlineMethodBaseCallIfNeeded hasValueMethodInfo cilState (fun hasValueResults ->
+//        let hasValueResults = hasValueResults |> List.map (fun cilState -> Option.get cilState.state.returnRegister, cilState)
+//        Cps.List.mapk boxNullable hasValueResults (List.concat >> pushResultToOperationalStack)))
 
 
     member x.Box (cfg : cfg) offset (cilState : cilState) =
@@ -656,7 +657,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         | _ -> __corruptedStack__()
     member private x.UnboxCommon (cilState : cilState) (obj : term) (t : System.Type) (handleRestResults : term * state -> term * state) (k : cilState list -> 'a) =
         let nonExceptionCont (cilState : cilState) res state k =
-            cilState |> withState state |> withResult res |> List.singleton |> k
+            cilState |> withState state |> pushToOpStack res |> List.singleton |> k
         let termType = Types.FromDotNetType cilState.state t
         assert(IsReference obj)
         assert(Types.IsValueType termType)
@@ -690,7 +691,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                     (fun state k -> k (Types.IsCast termType obj, state)) // TODO: Why not Types.RefIsType method?
                     (fun cilState k ->
                         let res, state = handleRestResults(Types.Cast obj termType |> HeapReferenceToBoxReference, cilState.state)
-                        cilState |> withState state |> withResult res |> List.singleton |> k)
+                        cilState |> withState state |> pushToOpStack res |> List.singleton |> k)
                     (x.Raise x.InvalidCastException)
 
         BranchOnNullCIL cilState obj
