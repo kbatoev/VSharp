@@ -87,7 +87,7 @@ module internal CilStateOperations =
             cilState.state term id (List.concat >> k)
 
     let StatedConditionalExecutionAppendResultsCIL (cilState : cilState) conditionInvocation (thenBranch : (cilState -> (cilState list -> 'a) -> 'a)) elseBranch k =
-         StatedConditionalExecution cilState.state conditionInvocation
+        StatedConditionalExecution cilState.state conditionInvocation
             (fun state k -> thenBranch {cilState with state = state} k)
             (fun state k -> elseBranch {cilState with state = state} k)
             (fun x y -> [x; y])
@@ -102,8 +102,8 @@ module internal CilStateOperations =
 
     // ------------------------------- Pretty printing for cilState -------------------------------
 
-    let private dumpSection section (sb : StringBuilder) =
-        sprintf "--------------- %s: ---------------" section |> sb.AppendLine
+    let private dumpSection section (sb : StringBuilder) = // TODO: use this functions from Core!!!!!! #do
+        sprintf "--------------- %s: ---------------" section |> sb.AppendLine // TODO: use append with \n #do
 
     let private dumpSectionValue section value (sb : StringBuilder) =
         sb |> dumpSection section |> (fun sb -> sb.AppendLine value)
@@ -121,8 +121,6 @@ module internal CilStateOperations =
     let dump (cilState : cilState) : string =
         let sb = dumpSectionValue "IP" (sprintf "%O" cilState.ip) (StringBuilder())
         let sb = dumpDict "Level" id ipAndMethodBase2String id sb cilState.level
-
-        let stateDump = VSharp.Core.API.Memory.Dump cilState.state
+        let stateDump = Memory.Dump cilState.state
         let sb = dumpSectionValue "State" stateDump sb
-
         if sb.Length = 0 then "<EmptyCilState>" else sb.ToString()

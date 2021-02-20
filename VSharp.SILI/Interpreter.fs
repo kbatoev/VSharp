@@ -509,9 +509,9 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         methodInterpreter.InitializeStatics cilState fieldInfo.DeclaringType (List.map (fun cilState ->
         let declaringTermType = fieldInfo.DeclaringType |> Types.FromDotNetType cilState.state
         let fieldId = Reflection.wrapField fieldInfo
-        let value = if addressNeeded
-                    then StaticField(declaringTermType, fieldId) |> Ref
-                    else Memory.ReadStaticField cilState.state declaringTermType fieldId
+        let value =
+            if addressNeeded then StaticField(declaringTermType, fieldId) |> Ref
+            else Memory.ReadStaticField cilState.state declaringTermType fieldId
         pushToOpStack value cilState :: []) >> List.concat)
     member private x.StsFld (cfg : cfg) offset (cilState : cilState) =
         let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Stsfld.Size)

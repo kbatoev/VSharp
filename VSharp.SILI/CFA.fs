@@ -697,15 +697,14 @@ type StepInterpreter() =
     override x.EvaluateOneStep (funcId, cilState : cilState) =
         try
             let cfa : CFA.cfa = CFA.cfaBuilder.computeCFA x funcId
-            let ip = cilState.ip
             let vertexWithSameOpStack (v : CFA.Vertex) =
                 assert(List.length cilState.state.opStack = List.length v.OpStack)
                 v.OpStack
                 |> List.zip cilState.state.opStack
                 |> List.forall (fun (elementOnStateOpSTack, elementOnVertexOpStack) ->
                     if CFA.cfaBuilder.shouldRemainOnOpStack elementOnVertexOpStack then elementOnStateOpSTack = elementOnVertexOpStack else true)
-            let howToNameIt (v : CFA.Vertex) = v.Ip = ip && v.OutgoingEdges.Count > 0 && vertexWithSameOpStack v // TODO: rename var #Kostya
-            let vertices = cfa.body.vertices.Values |> Seq.filter howToNameIt |> List.ofSeq
+            let isAppropriate (v : CFA.Vertex) = v.Ip = cilState.ip && v.OutgoingEdges.Count > 0 && vertexWithSameOpStack v
+            let vertices = cfa.body.vertices.Values |> Seq.filter isAppropriate |> List.ofSeq
 
             match vertices with
             | [] -> base.EvaluateOneStep (funcId, cilState)

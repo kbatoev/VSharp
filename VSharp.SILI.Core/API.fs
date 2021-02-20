@@ -30,7 +30,7 @@ module API =
         Memory.commonGuardedStatedApplyk f state term mergeStates k
 
     let PerformBinaryOperation op left right k = Operators.simplifyBinaryOperation op left right k
-    let PerformUnaryOperation op t arg k = Operators.simplifyUnaryOperation op t arg k
+    let PerformUnaryOperation op arg k = Operators.simplifyUnaryOperation op arg k
 
     [<AutoOpen>]
     module public Terms =
@@ -91,6 +91,7 @@ module API =
 
         let WithPathCondition conditionState condition = Memory.withPathCondition conditionState condition
         let RemovePathCondition conditionState condition = Memory.removePathCondition conditionState condition
+        let GetConditionOfState state = PC.squashPC state.pc
 
     module Types =
         let Numeric t = Types.Numeric t

@@ -22,7 +22,7 @@ module API =
     val GuardedStatedApplyk : (state -> term -> ('item -> 'a) -> 'a) -> state -> term -> ('item list -> 'item list) -> ('item list -> 'a) -> 'a
 
     val PerformBinaryOperation : OperationType -> term -> term -> (term -> 'a) -> 'a
-    val PerformUnaryOperation : OperationType -> symbolicType -> term -> (term -> 'a) -> 'a
+    val PerformUnaryOperation : OperationType -> term -> (term -> 'a) -> 'a
 
     [<AutoOpen>]
     module Terms =
@@ -65,8 +65,8 @@ module API =
         val HeapReferenceToBoxReference : term -> term
 
         val WithPathCondition : state -> term -> state
-
         val RemovePathCondition : state -> term -> state
+        val GetConditionOfState : state -> term
 
     module Types =
         val Numeric : System.Type -> symbolicType

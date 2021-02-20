@@ -310,34 +310,34 @@ namespace VSharp.Test.Tests.Generic
     [TestSvmFixture]
     public static class TetsUnion
     {
-//        public static Coord RetCoord(Object obj, Coord coord, int field)
-//        {
-//            if (obj is BlackPawn)
-//            {
-//                coord.X = 42;
-//            }
-//            if (obj is Pawn)
-//            {
-//                coord.X += 66;
-//            }
-//            return coord;
-//        }
+        public static Coord RetCoord(Object obj, Coord coord, int field)
+        {
+            if (obj is BlackPawn)
+            {
+                coord.X = 42;
+            }
+            if (obj is Pawn)
+            {
+                coord.X += 66;
+            }
+            return coord;
+        }
 
-//        public static Object Ret(Object obj)
-//        {
-//            var f = obj as BlackPawn;
-//            if (f != null)
-//            {
-//                f.SetNewField(42);
-//            }
-//            var a = obj as Pawn;
-//            if (a != null)
-//            {
-//                int b = a.GetNewField();
-//                a.SetNewField(b + 66);
-//            }
-//            return obj;
-//        }
+        public static Object Ret(Object obj)
+        {
+            var f = obj as BlackPawn;
+            if (f != null)
+            {
+                f.SetNewField(42);
+            }
+            var a = obj as Pawn;
+            if (a != null)
+            {
+                int b = a.GetNewField();
+                a.SetNewField(b + 66);
+            }
+            return obj;
+        }
 
         [TestSvm]
         public static int RetWorked(Object obj, int a)
