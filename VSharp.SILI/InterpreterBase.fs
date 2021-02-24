@@ -78,15 +78,19 @@ type public ExplorerBase() =
         | RecursionUnrollingModeType.NeverUnroll -> true
         | RecursionUnrollingModeType.AlwaysUnroll -> false
 
-    member x.ReduceFunction (methodBase : MethodBase) (cilState : cilState) k =
+    abstract ReduceFunction : MethodBase -> cilState -> (cilState list -> 'a) -> 'a
+    default x.ReduceFunction (methodBase : MethodBase) (cilState : cilState) k =
+        //TODO: do nothing, we have queue
+        cilState |> List.singleton |> k
+
         // TODO: do concrete invocation if possible!
 //        let canUseReflection = API.Marshalling.CanBeCalledViaReflection state funcId this parameters
 //        if Options.InvokeConcrete () && canUseReflection then
 //            API.Marshalling.CallViaReflection state funcId this parameters k
 //        else
-            let methodId = x.MakeMethodIdentifier methodBase
-            let invoke state k = x.Invoke methodId state k
-            x.EnterRecursiveRegion methodId cilState invoke k
+//            let methodId = x.MakeMethodIdentifier methodBase
+//            let invoke state k = x.Invoke methodId state k
+//            x.EnterRecursiveRegion methodId cilState invoke k
 
 
     member x.ReduceFunctionSignature state (methodBase : MethodBase) this paramValues isEffect k =
@@ -195,8 +199,8 @@ type public ExplorerBase() =
         | _ -> __unreachable__()
         |> List.singleton //TODO: remove ``List.singleton''
 
-    abstract CreateInstance : System.Type -> term list -> cilState -> cilState list
-    default x.CreateInstance exceptionType arguments cilState =
+    abstract CreateException : System.Type -> term list -> cilState -> cilState list
+    default x.CreateException exceptionType arguments cilState =
 //        x.InitializeStatics cilState exceptionType (List.map (fun cilState ->
         let constructors = exceptionType.GetConstructors()
         let argumentsLength = List.length arguments
@@ -214,32 +218,31 @@ type public ExplorerBase() =
         assert (not <| exceptionType.IsValueType)
         let s = cilState.state
         let reference, s = Memory.AllocateDefaultClass s (Types.FromDotNetType s exceptionType)
-        let withResult result (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = Some result}}
-        x.ReduceFunctionSignature s ctor (Some reference) (Specified arguments) false (fun state ->
-        x.ReduceFunction ctor {cilState with state = state} (fun cilStates ->
-        cilStates |> List.map (withResult reference)))
+        let cilState = cilState |> withState s |> withException (Constructing reference)
+        x.ReduceFunctionSignatureCIL cilState ctor (Some reference) (Specified arguments) false (fun cilState ->
+        x.ReduceFunction ctor cilState id)
 
     member x.InvalidProgramException cilState =
-        x.CreateInstance typeof<System.InvalidProgramException> [] cilState
+        x.CreateException typeof<System.InvalidProgramException> [] cilState
     member x.NullReferenceException cilState =
-        x.CreateInstance typeof<System.NullReferenceException> [] cilState
+        x.CreateException typeof<System.NullReferenceException> [] cilState
     member x.IndexOutOfRangeException cilState =
-        x.CreateInstance typeof<System.IndexOutOfRangeException> [] cilState
+        x.CreateException typeof<System.IndexOutOfRangeException> [] cilState
     member x.ArrayTypeMismatchException cilState =
-        x.CreateInstance typeof<System.ArrayTypeMismatchException> [] cilState
+        x.CreateException typeof<System.ArrayTypeMismatchException> [] cilState
     member x.DivideByZeroException cilState =
-        x.CreateInstance typeof<System.DivideByZeroException> [] cilState
+        x.CreateException typeof<System.DivideByZeroException> [] cilState
     member x.OverflowException cilState =
-        x.CreateInstance typeof<System.OverflowException> [] cilState
+        x.CreateException typeof<System.OverflowException> [] cilState
     member x.ArithmeticException cilState =
-        x.CreateInstance typeof<System.ArithmeticException> [] cilState
+        x.CreateException typeof<System.ArithmeticException> [] cilState
     member x.TypeInitializerException qualifiedTypeName innerException (cilState : cilState) =
         let typeName, state = Memory.AllocateString qualifiedTypeName cilState.state
         let args = [typeName; innerException]
-        x.CreateInstance typeof<System.TypeInitializationException> args {cilState with state = state}
+        x.CreateException typeof<System.TypeInitializationException> args {cilState with state = state}
     member x.InvalidCastException (cilState : cilState) =
         let message, state = Memory.AllocateString "Specified cast is not valid." cilState.state
-        x.CreateInstance typeof<System.InvalidCastException> [message] {cilState with state = state}
+        x.CreateException typeof<System.InvalidCastException> [message] {cilState with state = state}
 
 
     member x.ExploreAndCompose (funcId : IFunctionIdentifier) (cilState : cilState) (k : cilState list -> 'a) =

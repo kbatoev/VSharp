@@ -23,7 +23,6 @@ type cilState =
         | {label = Exit} :: [] -> false
         | [] -> __unreachable__()
         | _ -> true
-    member x.HasException = Option.isSome x.state.exceptionsRegister.ExceptionTerm
 
 module internal CilStateOperations =
 
@@ -40,7 +39,20 @@ module internal CilStateOperations =
     let makeInitialState m state = makeCilState (instruction m 0) state
 
     let isIIEState (s : cilState) = Option.isSome s.iie
-    let isError (s : cilState) = s.HasException
+    let isError (s : cilState) =
+        match s.state.exceptionsRegister with
+        | NoException -> false
+        | _ -> true
+    let isUnhandledError (s : cilState) =
+        match s.state.exceptionsRegister with
+        | Unhandled _ -> true
+        | _ -> false
+    let isUnmadeError (s : cilState) =
+        match s.state.exceptionsRegister with
+        | Constructing _ -> true
+        | _ -> false
+
+
     let currentIp (s : cilState) = List.head s.ip
     let pushToIp (ip : ipEntry) (cilState : cilState) = {cilState with ip = ip :: cilState.ip}
 

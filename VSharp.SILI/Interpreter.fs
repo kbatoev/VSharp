@@ -985,8 +985,6 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 id
         | _ -> __corruptedStack__()
 
-    member x.CreateInstance args = methodInterpreter.CreateInstance args
-
     member x.InvalidProgramException cilState = methodInterpreter.InvalidProgramException cilState
     member x.NullReferenceException cilState = methodInterpreter.NullReferenceException cilState
     member x.IndexOutOfRangeException cilState = methodInterpreter.IndexOutOfRangeException cilState
@@ -1030,8 +1028,8 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let rec executeAllInstructions (finishedStates, incompleteStates, errors) cilState =
             let ip = currentIp cilState
             try
-                let allStates : cilState list = x.ExecuteInstruction {cilState with iie = None}
-                let newErrors, goodStates = allStates |> List.partition (fun (cilState : cilState) -> cilState.HasException)
+                let allStates : cilState list = x.MakeStep {cilState with iie = None}
+                let newErrors, goodStates = allStates |> List.partition isError
                 let errors = errors @ newErrors //TODO: check it
 
                 match goodStates with
@@ -1066,7 +1064,22 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let newMinimum =  min newBalance oldMin
         {cilState with popsCount = (newMinimum, newBalance)}
 
-    member x.ExecuteInstruction (cilState : cilState) =
+    member x.MakeStepForErroredCilState (cilState : cilState) =
+        match cilState.state.exceptionsRegister with
+        | Constructing e ->
+            let currentIp = currentIp cilState
+            let states =
+                if currentIp.label = Exit then
+                    cilState |> withException (Unhandled e) |> withIp (List.tail cilState.ip) |> List.singleton
+                else x.ExecuteInstruction cilState
+            states
+        | _ -> __notImplemented__()
+
+    member x.MakeStep (cilState : cilState) =
+        if isError cilState then x.MakeStepForErroredCilState cilState
+        else x.ExecuteInstruction cilState
+
+    member private x.ExecuteInstruction (cilState : cilState) =
         Logger.trace "ExecuteInstruction:\n%s" (dump cilState)
         match cilState.ip with
         | {label = Instruction offset; method = m} :: _ ->

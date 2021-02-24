@@ -579,7 +579,14 @@ module internal InstructionsSet =
         assert(List.length newIps = 1)
         let newIp = List.head newIps
         let cilStates = op cfgData offset cilState
-        List.map (withIp newIp) cilStates
+
+        if isError cilState then
+            assert(isUnmadeError cilState)
+            assert(List.forall isUnmadeError cilStates)
+            cilStates |> List.map (withIp newIp)
+        else
+            let errored, good = cilStates |> List.partition isError
+            (good |> List.map (withIp newIp)) @ errored
 
     let opcode2Function : (cfgData -> offset -> ip list -> cilState -> cilState list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
     opcode2Function.[hashFunction OpCodes.Br]                 <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []

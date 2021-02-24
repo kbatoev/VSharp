@@ -44,6 +44,7 @@ type callSite = { sourceMethod : System.Reflection.MethodBase; offset : offset
             (Reflection.GetFullMethodName x.sourceMethod) x.offset x.opCode (Reflection.GetFullMethodName x.calledMethod)
 
 type exceptionRegister =
+    | Constructing of term
     | Unhandled of term
     | Caught of term
     | NoException
@@ -53,7 +54,6 @@ type exceptionRegister =
         | Unhandled error -> error
         | Caught error -> error
         | _ -> internalfail "no error"
-
 
     member x.TransformToCaught () =
         match x with

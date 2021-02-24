@@ -45,7 +45,7 @@ type DummySearcher() =
             PersistentDict.contains ip cilState.level && PersistentDict.find cilState.level ip >= maxBound
         override x.GetSearchDirection _ = Step
         override x.PickNext q =
-            let canBePropagated (s : cilState) = not (isIIEState s || isError s) && s.CanBeExpanded() && not <| x.Used s
+            let canBePropagated (s : cilState) = not (isIIEState s || isUnhandledError s) && s.CanBeExpanded() && not <| x.Used s
             let states = (q.GetStates()) |> List.filter canBePropagated
             match states with
             | x :: _ -> Some x
