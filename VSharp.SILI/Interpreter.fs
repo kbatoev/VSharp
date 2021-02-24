@@ -401,13 +401,12 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let this, args, cilState = x.RetrieveCalledMethodAndArgs OpCodes.Callvirt ancestorMethod cilState
         // NOTE: there is no need to initialize statics, because they were initialized before ``newobj'' execution
         // NOTE: It is not quite strict to ReduceFunctionSignature here because, but it does not matter because signatures of virtual methods are the same
-        methodInterpreter.ReduceFunctionSignature cilState.state ancestorMethod this (Specified args) false (fun state ->
-        x.CommonCallVirt ancestorMethod (withState state cilState) id)
+        methodInterpreter.ReduceFunctionSignatureCIL cilState ancestorMethod this (Specified args) false (fun cilState ->
+        x.CommonCallVirt ancestorMethod cilState id)
     member x.ReduceArrayCreation (arrayType : System.Type) (cilState : cilState) (parameters : term list) k =
         let arrayTyp = Types.FromDotNetType cilState.state arrayType
-        let reference, state = Memory.AllocateDefaultArray cilState.state parameters arrayTyp
-        withResultState reference state |> changeState cilState |> List.singleton |> k
-    member x.CommonCreateDelegate (ctor : ConstructorInfo) (cilState : cilState) (args : term list) (k : cilState list -> 'a) =
+        Memory.AllocateDefaultArray cilState.state parameters arrayTyp |> k
+    member x.CommonCreateDelegate (ctor : ConstructorInfo) (cilState : cilState) (args : term list) k =
         let target, methodPtr =
             assert(List.length args = 2)
             args.[0], args.[1]
@@ -427,9 +426,8 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
 
         let typ = Types.FromDotNetType cilState.state ctor.DeclaringType
         Lambdas.make invoke typ (fun lambda ->
-        let deleg, state = Memory.AllocateDelegate cilState.state lambda
-        let state = withResultState deleg state
-        withState state cilState |> List.singleton |> k)
+        Memory.AllocateDelegate cilState.state lambda |> k)
+
     member x.CommonNewObj isCallNeeded (constructorInfo : ConstructorInfo) (cilState : cilState) (args : term list) (k : cilState list -> 'a) : 'a =
         __notImplemented__()
 //        let typ = constructorInfo.DeclaringType
@@ -493,10 +491,13 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 let cilState = cilState |> withState state |> pushToOpStack ref //NOTE: ref is used as result afterCall
                 callConstructor cilState ref id
 
+        let k (reference, state) =
+            cilState |> withState state |> pushToOpStack reference |> moveCurrentIp
+
         if Reflection.IsDelegateConstructor constructorInfo then
-            x.CommonCreateDelegate constructorInfo cilState args id
+            x.CommonCreateDelegate constructorInfo cilState args k
         elif typ.IsArray && constructorInfo.GetMethodBody() = null then
-            x.ReduceArrayCreation typ cilState args id
+            x.ReduceArrayCreation typ cilState args k
         else blockCase cilState)
 
     member x.LdsFld addressNeeded (cfg : cfg) offset (cilState : cilState) =

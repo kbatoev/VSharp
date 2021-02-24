@@ -104,10 +104,8 @@ module internal CilStateOperations =
     let changeState (cilState : cilState) state = {cilState with state = state}
 
     let withNoResult (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = None}}
-    let withResultState result (state : state) = {state with returnRegister = Some result}
 
     let pushToOpStack v (cilState : cilState) = {cilState with state = {cilState.state with opStack = v :: cilState.state.opStack}}
-//    let addReturnPoint p (cilState : cilState) = {cilState with returnPoints = p :: cilState.returnPoints}
     let withException exc (cilState : cilState) = {cilState with state = {cilState.state with exceptionsRegister = exc}}
 
     let popOperationalStack (cilState : cilState) =
