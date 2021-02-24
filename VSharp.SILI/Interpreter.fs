@@ -47,9 +47,9 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         opcode2Function.[hashFunction OpCodes.Call]           <- this.Call
         opcode2Function.[hashFunction OpCodes.Callvirt]       <- this.CallVirt
         opcode2Function.[hashFunction OpCodes.Newobj]         <- this.NewObj
-        opcode2Function.[hashFunction OpCodes.Ldsfld]         <- zipWithOneOffset <| this.LdsFld false
-        opcode2Function.[hashFunction OpCodes.Ldsflda]        <- zipWithOneOffset <| this.LdsFld true
-        opcode2Function.[hashFunction OpCodes.Stsfld]         <- zipWithOneOffset <| this.StsFld
+        opcode2Function.[hashFunction OpCodes.Ldsfld]         <- this.LdsFld false
+        opcode2Function.[hashFunction OpCodes.Ldsflda]        <- this.LdsFld true
+        opcode2Function.[hashFunction OpCodes.Stsfld]         <- this.StsFld
         opcode2Function.[hashFunction OpCodes.Ldfld]          <- zipWithOneOffset <| this.LdFld false
         opcode2Function.[hashFunction OpCodes.Ldflda]         <- zipWithOneOffset <| this.LdFld true
         opcode2Function.[hashFunction OpCodes.Stfld]          <- zipWithOneOffset <| this.StFld
@@ -500,7 +500,9 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             x.ReduceArrayCreation typ cilState args k
         else blockCase cilState)
 
-    member x.LdsFld addressNeeded (cfg : cfg) offset (cilState : cilState) =
+    member x.LdsFld addressNeeded (cfg : cfg) offset newIps (cilState : cilState) =
+        assert(List.length newIps = 1)
+        let newIp = List.head newIps
         let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Ldsfld.Size)
         assert (fieldInfo.IsStatic)
         methodInterpreter.InitializeStatics cilState fieldInfo.DeclaringType (fun cilState ->
@@ -509,21 +511,22 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let value = if addressNeeded
                     then StaticField(declaringTermType, fieldId) |> Ref
                     else Memory.ReadStaticField cilState.state declaringTermType fieldId
-        pushToOpStack value cilState :: [])
-    member private x.StsFld (cfg : cfg) offset (cilState : cilState) =
+        cilState |> pushToOpStack value |> withIp newIp |> List.singleton)
+    member private x.StsFld (cfg : cfg) offset newIps (cilState : cilState) =
+        assert(List.length newIps = 1)
+        let newIp = List.head newIps
         let fieldInfo = resolveFieldFromMetadata cfg (offset + OpCodes.Stsfld.Size)
-        let state = cilState.state
         assert (fieldInfo.IsStatic)
-        let declaringTermType = fieldInfo.DeclaringType |> Types.FromDotNetType state
+        methodInterpreter.InitializeStatics cilState fieldInfo.DeclaringType (fun cilState ->
+        let declaringTermType = fieldInfo.DeclaringType |> Types.FromDotNetType cilState.state
         let fieldId = Reflection.wrapField fieldInfo
-        match state.opStack with
+        match cilState.state.opStack with
         | value :: stack ->
-            methodInterpreter.InitializeStatics cilState fieldInfo.DeclaringType (fun cilState ->
             let fieldType = fieldInfo.FieldType |> Types.FromDotNetType cilState.state
             let value = castUnchecked fieldType value cilState.state
             let state = Memory.WriteStaticField cilState.state declaringTermType fieldId value
-            cilState |> withState state |> withOpStack stack |> List.singleton)
-        | _ -> __corruptedStack__()
+            cilState |> withState state |> withOpStack stack |> withIp newIp |> List.singleton
+        | _ -> __corruptedStack__())
     member x.LdFldWithFieldInfo (fieldInfo : FieldInfo) addressNeeded (cilState : cilState) =
         assert (not fieldInfo.IsStatic)
         match cilState.state.opStack with
