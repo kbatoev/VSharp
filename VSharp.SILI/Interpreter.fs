@@ -242,8 +242,8 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 let this = Memory.ReadThis cilState.state calledMethod
                 let args = calledMethod.GetParameters() |> Seq.map (Memory.ReadArgument cilState.state) |> List.ofSeq
                 let cilState = popStackOf cilState
-                methodInterpreter.ReduceFunctionSignature cilState.state targetMethod (Some this) (Specified args) false (fun rightState ->
-                x.InlineMethodBaseCallIfNeeded targetMethod {cilState with state = rightState} k)
+                methodInterpreter.ReduceFunctionSignatureCIL cilState targetMethod (Some this) (Specified args) false (fun cilState ->
+                x.InlineMethodBaseCallIfNeeded targetMethod cilState k)
 
     member x.CallVirtualMethod (ancestorMethod : MethodInfo) (cilState : cilState) (k : cilState list -> 'a) =
         let methodId = methodInterpreter.MakeMethodIdentifier ancestorMethod

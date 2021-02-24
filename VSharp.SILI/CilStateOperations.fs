@@ -102,7 +102,10 @@ module internal CilStateOperations =
 
     // ------------------------------- Helper functions for cilState and state interaction -------------------------------
     let stateOf (cilState : cilState) = cilState.state
-    let popStackOf (cilState : cilState) = {cilState with state = Memory.PopStack cilState.state}
+    let popStackOf (cilState : cilState) =
+        let s = Memory.PopStack cilState.state
+        let ip = List.tail cilState.ip
+        {cilState with state = s; ip = ip}
 
     let withCurrentTime time (cilState : cilState) = {cilState with state = {cilState.state with currentTime = time}}
 
