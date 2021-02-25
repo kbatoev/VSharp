@@ -17,7 +17,7 @@
         <Compile Include="Variables.fs" />
         <Compile Include="CFA.fs" />
         <Compile Include="Engine.fs" />
-        <Compile Include="StepInterpreter.fs" />
+        <Compile Include="CFASearcher.fs" />
     </ItemGroup>
 
     <ItemGroup>
