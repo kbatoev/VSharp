@@ -27,14 +27,14 @@ type ISearcher() =
 
         let allStates = q.GetStates() |> List.filter isResult
         let iieStates = List.filter isIIEState allStates
-        let errors = List.filter isError allStates
+        let nonErrors = List.filter (isError >> not) allStates
 
-        match iieStates, errors with
-        | CilStateWithIIE iie :: _ , _ -> raise iie
-        | _ :: _, _ -> __unreachable__()
-        | _, _ :: _ -> internalfailf "exception handling is not implemented yet"
-        | _ when allStates = [] -> internalfailf "No states were obtained. Most likely such a situation is a bug. Check it!"
-        | _ -> allStates
+        match iieStates with
+        | CilStateWithIIE iie :: _ -> raise iie
+        | _ :: _ -> __unreachable__()
+//        | _, _ :: _ -> internalfailf "exception handling is not implemented yet"
+        | _ when nonErrors = [] -> internalfailf "No states were obtained. Most likely such a situation is a bug. Check it!"
+        | _ -> nonErrors
 
 
 type DummySearcher() =
