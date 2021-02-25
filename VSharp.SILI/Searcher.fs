@@ -5,10 +5,6 @@ open VSharp
 open CilStateOperations
 open VSharp.Core
 
-type SearchDirections =
-    | Step
-    | Compose of cilState list
-
 type IndexedQueue() =
     let q = List<cilState>()
     member x.Add s = q.Add s
@@ -16,11 +12,15 @@ type IndexedQueue() =
     member x.Remove s = let ok = q.Remove s in assert(ok)
     member x.GetStates () = List.ofSeq q
 
-
 [<AbstractClass>]
 type ISearcher() =
+    let maxBound = 10u // 10u is caused by number of iterations for tests: Always18, FirstEvenGreaterThen7
     abstract member PickNext : IndexedQueue -> cilState option
-    abstract member GetSearchDirection : cilState -> SearchDirections
+
+    member x.Used (cilState : cilState) =
+        let ip = currentIp cilState
+        PersistentDict.contains ip cilState.level && PersistentDict.find cilState.level ip >= maxBound
+
     member x.GetResults initialState (q : IndexedQueue) =
         let (|CilStateWithIIE|_|) (cilState : cilState) = cilState.iie
         let isResult (s : cilState) = s.startingIP = initialState.startingIP
@@ -39,13 +39,9 @@ type ISearcher() =
 
 type DummySearcher() =
     inherit ISearcher() with
-        let maxBound = 10u // 10u is caused by number of iterations for tests: Always18, FirstEvenGreaterThen7
-        member private x.Used (cilState : cilState) =
-            let ip = currentIp cilState
-            PersistentDict.contains ip cilState.level && PersistentDict.find cilState.level ip >= maxBound
-        override x.GetSearchDirection _ = Step
         override x.PickNext q =
-            let canBePropagated (s : cilState) = not (isIIEState s || isUnhandledError s) && s.CanBeExpanded() && not <| x.Used s
+            let canBePropagated (s : cilState) =
+                not (isIIEState s || isUnhandledError s) && isExecutable s && not <| x.Used s
             let states = (q.GetStates()) |> List.filter canBePropagated
             match states with
             | x :: _ -> Some x

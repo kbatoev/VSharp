@@ -19,11 +19,14 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
         q.Add initialState
 
         let step s =
-            match searcher.GetSearchDirection(s) with
-            | Step ->
+            let currentIp = currentIp s
+            let states = List.filter (startingIpOf >> (=) currentIp) (q.GetStates())
+
+            match states with
+            | [] ->
                 let goodStates, incompleteStates, errors = ILInterpreter(x).ExecuteOnlyOneInstruction s
                 goodStates @ incompleteStates @ errors
-            | Compose states -> List.map (compose s) states |> List.concat
+            | _ -> List.map (compose s) states |> List.concat
             |> List.iter q.Add
 
         let rec iter s =

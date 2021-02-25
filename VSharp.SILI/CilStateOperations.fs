@@ -68,6 +68,7 @@ module internal CilStateOperations =
 //        | [] -> __unreachable__()
 //        | _ -> __notImplemented__()
     let withIp (ip : ip) (cilState : cilState) = {cilState with ip = ip}
+    let startingIpOf (cilState : cilState) = cilState.startingIP
 
     let composeIps (oldIp : ip) (newIp : ip) = newIp @ oldIp
 //        match newIps, oldIps with
@@ -84,13 +85,14 @@ module internal CilStateOperations =
                 PersistentDict.add k (v + oldValue) acc
             ) cilState1.level cilState2.level
 
+        let iie = None // we might concretize state, so we should try executed instructions again
         let ip = composeIps cilState1.ip (List.tail cilState2.ip)
         let states = Memory.ComposeStates cilState1.state cilState2.state id
         let leftOpStack = List.skip (-1 * fst cilState2.popsCount) cilState1.state.opStack
         let makeResultState (state : state) =
             let state' = {state with opStack = leftOpStack @ state.opStack}
             {cilState2 with state = state'; ip = ip; level = level; popsCount = cilState1.popsCount
-                            startingIP = cilState1.startingIP}
+                            startingIP = cilState1.startingIP; iie = iie}
         List.map makeResultState states
 
 
