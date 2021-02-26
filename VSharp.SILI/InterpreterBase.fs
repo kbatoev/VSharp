@@ -15,10 +15,12 @@ open ipEntryOperations
 
 type codeLocationSummary = { cilState : cilState } // state.returnRegister is used as result
     with
+    member x.State = withOpStack [] x.cilState |> stateOf
     member x.Result =
-        match x.cilState.state.returnRegister with
-        | None -> Nop
-        | Some r -> r
+        match x.cilState.state.opStack with
+        | [] -> Nop
+        | r :: [] -> r
+        | _ -> __unreachable__()
 
 type codeLocationSummaries = codeLocationSummary list
 
@@ -93,8 +95,8 @@ type public ExplorerBase() =
 //            x.EnterRecursiveRegion methodId cilState invoke k
 
 
-    member x.ReduceFunctionSignature state (methodBase : MethodBase) this paramValues isEffect k =
-        let funcId = x.MakeMethodIdentifier methodBase
+    static member ReduceFunctionSignature state (funcId : IFunctionIdentifier) this paramValues isEffect k =
+        let methodBase = funcId.Method
         let parameters = methodBase.GetParameters()
         let getParameterType (param : ParameterInfo) = Types.FromDotNetType state param.ParameterType
         let values, areParametersSpecified =
@@ -130,7 +132,8 @@ type public ExplorerBase() =
         Memory.NewStackFrame state funcId (parametersAndThis @ locals) isEffect |> k // TODO: need to change FQL in "parametersAndThis" before adding it to stack frames (ClassesSimplePropertyAccess.TestProperty1) #FQLsNotEqual
 
     member x.ReduceFunctionSignatureCIL (cilState : cilState) (methodBase : MethodBase) this paramValues isEffect k =
-        x.ReduceFunctionSignature cilState.state methodBase this paramValues isEffect (fun state ->
+        let funcId = x.MakeMethodIdentifier methodBase
+        ExplorerBase.ReduceFunctionSignature cilState.state funcId this paramValues isEffect (fun state ->
         cilState |> withState state |> pushToIp (instruction methodBase 0) |> k)
 
 
@@ -178,7 +181,8 @@ type public ExplorerBase() =
 
     member x.CallAbstractMethod (funcId : IFunctionIdentifier) state k =
         __insufficientInformation__ "Can't call abstract method %O, need more information about the object type" funcId
-    member x.FormInitialStateWithoutStatics (funcId : IFunctionIdentifier) =
+
+    static member FormInitialStateWithoutStatics isEffect (funcId : IFunctionIdentifier) =
         let this, state(*, isMethodOfStruct*) =
             match funcId with
             | :? IMethodIdentifier as m ->
@@ -188,11 +192,11 @@ type public ExplorerBase() =
             | _ -> __notImplemented__()
         let thisIsNotNull = if Option.isSome this then !!(IsNullReference(Option.get this)) else Nop
         let state = if Option.isSome this && thisIsNotNull <> True then WithPathCondition state thisIsNotNull else state
+        ExplorerBase.ReduceFunctionSignature state funcId this Unspecified isEffect (fun state -> state, this, thisIsNotNull)
 
-        x.ReduceFunctionSignature state funcId.Method this Unspecified true (fun state ->  state, this, thisIsNotNull)
     member x.FormInitialState (funcId : IFunctionIdentifier) : (cilState * term option * term) list =
-        let state, this, thisIsNotNull = x.FormInitialStateWithoutStatics funcId
-        let cilState = CilStateOperations.makeInitialState funcId.Method state
+        let state, this, thisIsNotNull = ExplorerBase.FormInitialStateWithoutStatics false funcId
+        let cilState = makeInitialState funcId.Method state
         let cilStates = x.InitializeStatics cilState funcId.Method.DeclaringType (List.singleton)
         match cilStates with
         | cilState :: [] -> cilState, this, thisIsNotNull (*, isMethodOfStruct*)

@@ -9,7 +9,9 @@ type IndexedQueue() =
     let q = List<cilState>()
     member x.Add s = q.Add s
 
-    member x.Remove s = let ok = q.Remove s in assert(ok)
+    member x.Remove s =
+        let removed = q.Remove s
+        if not removed then Logger.trace "CilState was not removed from IndexedQueue:\n%O" s
     member x.GetStates () = List.ofSeq q
 
 [<AbstractClass>]
@@ -23,7 +25,10 @@ type ISearcher() =
 
     member x.GetResults initialState (q : IndexedQueue) =
         let (|CilStateWithIIE|_|) (cilState : cilState) = cilState.iie
-        let isResult (s : cilState) = s.startingIP = initialState.startingIP
+
+        let isResult (s : cilState) =
+            let lastFrame = List.head s.state.frames
+            s.startingIP = initialState.startingIP && not lastFrame.isEffect
 
         let allStates = q.GetStates() |> List.filter isResult
         let iieStates = List.filter isIIEState allStates

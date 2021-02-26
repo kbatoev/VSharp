@@ -16,13 +16,6 @@ type cilState =
       startingIP : ipEntry
       popsCount : int * int      // minimum and currentValue
     }
-    member x.CanBeExpanded () =
-        match x.ip with
-        | {label = Instruction _} :: []
-        | _ :: _ :: _ -> true
-        | {label = Exit} :: [] -> false
-        | [] -> __unreachable__()
-        | _ -> true
 
 module internal CilStateOperations =
 
@@ -39,6 +32,13 @@ module internal CilStateOperations =
     let makeInitialState m state = makeCilState (instruction m 0) state
 
     let isIIEState (s : cilState) = Option.isSome s.iie
+
+    let isExecutable (s : cilState) =
+        match s.ip with
+        | [] -> __unreachable__()
+        | {label = Exit} :: [] -> false
+        | _ -> true
+
     let isError (s : cilState) =
         match s.state.exceptionsRegister with
         | NoException -> false
@@ -86,11 +86,11 @@ module internal CilStateOperations =
             ) cilState1.level cilState2.level
 
         let iie = None // we might concretize state, so we should try executed instructions again
-        let ip = composeIps cilState1.ip (List.tail cilState2.ip)
+        let ip = composeIps (List.tail cilState1.ip) cilState2.ip
         let states = Memory.ComposeStates cilState1.state cilState2.state id
         let leftOpStack = List.skip (-1 * fst cilState2.popsCount) cilState1.state.opStack
         let makeResultState (state : state) =
-            let state' = {state with opStack = leftOpStack @ state.opStack}
+            let state' = {state with opStack = state.opStack @ leftOpStack}
             {cilState2 with state = state'; ip = ip; level = level; popsCount = cilState1.popsCount
                             startingIP = cilState1.startingIP; iie = iie}
         List.map makeResultState states

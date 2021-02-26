@@ -18,9 +18,11 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
         let q = IndexedQueue()
         q.Add initialState
 
+        let hasAnyProgress (s : cilState) = currentIp s <> startingIpOf s
+        let isEffectFor ipEntry (s : cilState) = hasAnyProgress s && startingIpOf s = ipEntry
+
         let step s =
-            let currentIp = currentIp s
-            let states = List.filter (startingIpOf >> (=) currentIp) (q.GetStates())
+            let states = List.filter (isEffectFor (currentIp s)) (q.GetStates())
 
             match states with
             | [] ->
@@ -203,7 +205,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 | None, false -> internalfail "Calling non-static concrete implementation for static method"
                 | _ -> thisOption, args
             let s = Memory.PopStack s
-            let state = methodInterpreter.ReduceFunctionSignature s methodInfo thisOption (Specified args) false id
+            let state = ExplorerBase.ReduceFunctionSignature s (methodInterpreter.MakeMethodIdentifier methodInfo) thisOption (Specified args) false id
             // NOTE: callsite of cilState is explicitly untouched
             cilState |> withState state |> withLastIp (instruction methodInfo 0) |> List.singleton |> k
         elif int (methodBase.GetMethodImplementationFlags() &&& MethodImplAttributes.InternalCall) <> 0 then

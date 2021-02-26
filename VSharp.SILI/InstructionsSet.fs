@@ -288,28 +288,11 @@ module internal InstructionsSet =
             else
                 let res, cilState = popOperationalStack cilState
                 let castedResult = castUnchecked resultTyp res cilState.state
-                let withResult result (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = Some result}}
-                let action = if List.length cilState.ip = 1 then withResult else pushToOpStack // TODO: always pushToOpStack
-                action castedResult cilState
+                pushToOpStack castedResult cilState
 
         match cilState.ip with
         | ip :: ips -> {cilState with ip = {label = Exit; method = ip.method} :: ips} |> List.singleton
         | [] -> __unreachable__()
-
-
-//        match List.tail cilState.ip with
-//        | [] -> cilState |> moveCurrentIp (exit cfg.methodBase) // TODO: add popStackOf here (golds will change)
-//                |> withCurrentTime [] // TODO: #ask Misha about current time
-//        | ip :: ips when isCallIp ip ->
-//            let offset = ip.Offset()
-//            let callSite = Instruction.parseCallSite ip.method offset
-//            let ip' = moveCurrentIp ip
-//            {cilState with ip = ip' :: ips} |> addToCallSiteResults callSite result |> popStackOf
-//        | ip :: ips ->
-//            let offset = ip.Offset()
-//            let opCode = Instruction.parseInstruction ip.method offset
-//            __notImplemented__()
-//        |> List.singleton
 
     let transform2BooleanTerm pc (term : term) =
         let check term =

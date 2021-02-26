@@ -572,7 +572,7 @@ module public CFA =
                 | _ -> internalfailf "unknown methodBase %O" calledMethod
 
             let numberToDrop = List.length args + if Option.isNone this || callSite.opCode = OpCodes.Newobj then 0 else 1
-            let stateWithArgsOnFrame : state = methodInterpreter.ReduceFunctionSignature cilState.state calledMethod this (Specified args) false id
+            let stateWithArgsOnFrame = ExplorerBase.ReduceFunctionSignature cilState.state (methodInterpreter.MakeMethodIdentifier calledMethod) this (Specified args) false id
             let nextIp =
                 assert(cfg.graph.[offset].Count = 1)
                 {ip with label = Instruction cfg.graph.[offset].[0]}
@@ -700,7 +700,7 @@ module public CFA =
             match alreadyComputedCFAs.ContainsKey methodBase with
             | true -> alreadyComputedCFAs.[methodBase]
             | _ ->
-                let initialState, _, _ = methodInterpreter.FormInitialStateWithoutStatics funcId
+                let initialState, _, _ = ExplorerBase.FormInitialStateWithoutStatics true funcId
                 Prelude.releaseAssert(Map.isEmpty initialState.callSiteResults && Option.isNone initialState.returnRegister)
 
                 let cfg = CFG.build methodBase
@@ -711,30 +711,54 @@ module public CFA =
                 Logger.printLog Logger.Trace "Computed cfa: %O" cfa
                 cfa
 
-//type StepInterpreter() =
-//    inherit MethodInterpreter()
-//
-//    override x.CreateInstance t args (cilState : cilState) =
-//        let state = {cilState.state with exceptionsRegister = Unhandled Nop}
-//        List.singleton <| {cilState with state = state}
-//
-//    override x.EvaluateOneStep (funcId, cilState : cilState) =
-//        try
-//            let cfa : CFA.cfa = CFA.cfaBuilder.computeCFA x funcId
-//            let ip = cilState.ip
-//            let vertexWithSameOpStack (v : CFA.Vertex) =
-//                v.OpStack
-//                |> List.zip cilState.state.opStack
-//                |> List.forall (fun (elementOnStateOpSTack, elementOnVertexOpStack) ->
-//                    if CFA.cfaBuilder.shouldRemainOnOpStack elementOnVertexOpStack then elementOnStateOpSTack = elementOnVertexOpStack else true)
-//            let vertices = cfa.body.vertices.Values |> Seq.filter (fun (v : CFA.Vertex) ->
-//                v.Ip = ip && v.OutgoingEdges.Count > 0 && vertexWithSameOpStack v) |> List.ofSeq
-//
-//            match vertices with
-//            | [] -> base.EvaluateOneStep (funcId, cilState)
-//            | _ ->
-//                let propagateThroughEdge acc (edge : CFA.Edge) =
-//                    acc @ edge.PropagatePath cilState
-//                List.fold (fun acc (v : CFA.Vertex) -> Seq.fold propagateThroughEdge acc v.OutgoingEdges) [] vertices
-//        with
-//        | :? InsufficientInformationException as iie -> base.EvaluateOneStep (funcId, cilState)
+
+// Most probably won't be used in real testing
+// Aimed to test composition and Interpreter--Searcher feature
+type CFASearcher() =
+    inherit ISearcher() with
+        override x.PickNext q =
+            // 1) should append states to Queue
+            // 2) should stop executing states and produce states with proper
+            //    a) current time
+            //    b) opStack (including FRCS)
+
+            let canBePropagated (s : cilState) =
+                let conditions = [isIIEState; isUnhandledError; x.Used; isExecutable >> not]
+                conditions |> List.fold (fun acc f -> acc || f s) false |> not
+
+            let states = (q.GetStates()) |> List.filter canBePropagated
+            match states with
+            | x :: _ -> Some x
+            | [] -> None
+
+type MethodSearcher() =
+    inherit ISearcher() with
+    let shouldStartExploringInIsolation (q :IndexedQueue) (s : cilState) =
+        let all = q.GetStates()
+        match currentIp s with
+        | _ when List.length all = 1 -> true
+        | {label = Instruction 0} as ip when List.length (List.filter (startingIpOf >> (=) ip) all) = 0 -> true
+        | _ -> false
+
+    let effectsFirst (s1 : cilState) (s2 : cilState) =
+        let lastFrame1 = List.head s1.state.frames
+        if s1 = s2 then 0
+        elif lastFrame1.isEffect then -1 else 1
+
+
+    override x.PickNext q =
+        let canBePropagated (s : cilState) =
+            let conditions = [isIIEState; isUnhandledError; x.Used; isExecutable >> not]
+            conditions |> List.fold (fun acc f -> acc || f s) false |> not
+
+        let states = q.GetStates() |> List.filter canBePropagated |> List.sortWith effectsFirst
+        match states with
+        | [] -> None
+        | s :: _ when shouldStartExploringInIsolation q s ->
+            let currentIp = currentIp s
+            let ilMethodMtd : ILMethodMetadata = {methodBase = currentIp.method} //TODO: #mbdo replace IFunctionIdentifier from stackFrame with MethodBase
+            let stateForComposition, _, _ = ExplorerBase.FormInitialStateWithoutStatics true ilMethodMtd
+            let cilStateForComposition = makeInitialState currentIp.method stateForComposition
+            Some cilStateForComposition
+        | s :: _ -> Some s
+
