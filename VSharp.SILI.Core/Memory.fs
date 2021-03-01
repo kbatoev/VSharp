@@ -74,9 +74,10 @@ type exceptionRegister =
         | _ -> None
     static member map f x =
         match x with
+        | Constructing e -> Constructing <| f e
         | Unhandled e -> Unhandled <| f e
         | Caught e -> Caught <| f e
-        | _ -> NoException
+        | NoException -> NoException
 
 type callSiteResults = Map<callSite, term option>
 
@@ -853,7 +854,10 @@ module internal Memory =
         writeStackLocation stack k' v'
 
     let composeRaisedExceptionsOf (state : state) (error : exceptionRegister) =
-        error |> exceptionRegister.map (fillHoles state)
+        match state.exceptionsRegister, error with
+        | Constructing e, NoException -> Constructing e
+        | NoException, _ -> error |> exceptionRegister.map (fillHoles state)
+        | _ -> __unreachable__()
 
     let composeCallSiteResultsOf (state : state) (callSiteResults : callSiteResults) =
         Map.fold (fun (acc : callSiteResults) key value ->
@@ -972,7 +976,7 @@ module internal Memory =
             // Note: this is not final opStack of resulting cilState, here we forget left state's opStack at all
             let opStack = composeOpStacksOf state state'.opStack
             let returnRegister = Option.map (fillHoles state) state'.returnRegister
-            let exceptionRegister = composeRaisedExceptionsOf state state.exceptionsRegister
+            let exceptionRegister = composeRaisedExceptionsOf state state'.exceptionsRegister
             let callSiteResults = composeCallSiteResultsOf state state'.callSiteResults
             let stack, frames = composeStacksAndFramesOf state state'
             let! g1, stackBuffers = composeMemoryRegions state state.stackBuffers state'.stackBuffers

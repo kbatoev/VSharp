@@ -936,6 +936,39 @@ namespace VSharp.Test.Tests
             public int a;
         }
 
+
+        [TestSvm]
+        public static uint TestConversions(uint x)
+        {
+            return x;
+        }
+
+        [TestSvm]
+        public static long Conv_Ovf_short_int(long a)
+        {
+            return checked((int) a);
+        }
+
+
+        [TestSvm]
+        public static long Many_Conversions(short a)
+        {
+            long tmp = a;
+            tmp = (short) Conv_Ovf_short_int(tmp);
+            tmp = (byte) Conv_Ovf_short_int(tmp);
+            tmp = (long) Conv_Ovf_short_int(tmp);
+            tmp = (short) Conv_Ovf_short_int(tmp);
+            tmp = (byte) Conv_Ovf_short_int(tmp);
+            tmp = (long) Conv_Ovf_short_int(tmp);
+            return tmp;
+        }
+
+        [TestSvm]
+        public static long SumOfIntAndUint(int a, uint b)
+        {
+            return b + a;
+        }
+
         [TestSvm]
         public static int TestArgComposition(Aaaa c)
         {

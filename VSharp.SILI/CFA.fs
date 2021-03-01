@@ -751,7 +751,12 @@ type MethodSearcher() =
             let conditions = [isIIEState; isUnhandledError; x.Used; isExecutable >> not]
             conditions |> List.fold (fun acc f -> acc || f s) false |> not
 
-        let states = q.GetStates() |> List.filter canBePropagated |> List.sortWith effectsFirst
+        let states =
+//            try
+                let forPropagation = q.GetStates() |> List.filter canBePropagated
+                forPropagation |> List.sortWith effectsFirst
+//            with
+//            | _ -> __unreachable__()
         match states with
         | [] -> None
         | s :: _ when shouldStartExploringInIsolation q s ->

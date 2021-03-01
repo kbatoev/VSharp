@@ -124,8 +124,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
     let __corruptedStack__() = raise (System.InvalidProgramException())
 
     member private x.Raise createException (cilState : cilState) k =
-        //TODO: exception handling
-        let statesWithCreatedExceptions : cilState list = createException cilState
+        let statesWithCreatedExceptions = createException cilState
         k statesWithCreatedExceptions
 
     member private x.AccessArray accessor (cilState : cilState) upperBound index k =
@@ -651,7 +650,6 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
 
 
     member x.Box (cfg : cfg) offset (cilState : cilState) =
-
         let t = resolveTypeFromMetadata cfg (offset + OpCodes.Box.Size)
         let termType = Types.FromDotNetType cilState.state t
         match cilState.state.opStack with
