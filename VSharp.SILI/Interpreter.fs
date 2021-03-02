@@ -3,6 +3,7 @@ namespace VSharp.Interpreter.IL
 open System.Collections.Generic
 open System.Reflection
 open System.Reflection.Emit
+open FSharpx.Collections
 open InstructionsSet
 open CilStateOperations
 open VSharp
@@ -329,42 +330,40 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         methodInterpreter.CallAbstractMethod funcId cilState k
 
     member private x.ConvOvf targetType (cilState : cilState) =
-        let typIsLessTyp : Dictionary<symbolicType, list<symbolicType>> = Dictionary<_,_>()
-        typIsLessTyp.[TypeUtils.int8Type] <- [TypeUtils.int8Type; TypeUtils.int16Type; TypeUtils.int32Type; TypeUtils.int64Type]
-        typIsLessTyp.[TypeUtils.int16Type] <- [TypeUtils.int16Type; TypeUtils.int32Type; TypeUtils.int64Type]
-        typIsLessTyp.[TypeUtils.int32Type] <- [TypeUtils.int32Type; TypeUtils.int64Type]
-        typIsLessTyp.[TypeUtils.int64Type] <- [TypeUtils.int64Type]
-
-        typIsLessTyp.[TypeUtils.uint8Type] <- [TypeUtils.uint8Type; TypeUtils.uint16Type; TypeUtils.uint32Type; TypeUtils.uint64Type]
-        typIsLessTyp.[TypeUtils.uint16Type] <- [TypeUtils.uint16Type; TypeUtils.uint32Type; TypeUtils.uint64Type]
-        typIsLessTyp.[TypeUtils.uint32Type] <- [TypeUtils.uint32Type; TypeUtils.uint64Type]
-        typIsLessTyp.[TypeUtils.uint64Type] <- [TypeUtils.uint64Type]
-        let less leftTyp rightTyp = List.contains rightTyp typIsLessTyp.[leftTyp]
-
-        let minMax : Dictionary<symbolicType, int64 * int64> = Dictionary<_,_>()
-        minMax.[TypeUtils.int8Type] <- (System.SByte.MinValue |> int64, System.SByte.MaxValue |> int64)
-        minMax.[TypeUtils.int16Type] <- (System.Int16.MinValue |> int64, System.Int16.MaxValue |> int64)
-        minMax.[TypeUtils.int32Type] <- (System.Int32.MinValue |> int64, System.Int32.MaxValue |> int64)
-        minMax.[TypeUtils.int64Type] <- (System.Int64.MinValue, System.Int64.MaxValue)
-        minMax.[TypeUtils.uint8Type] <- (System.Byte.MinValue |> int64, System.Byte.MaxValue |> int64)
-        minMax.[TypeUtils.uint16Type] <- (System.UInt16.MinValue |> int64, System.UInt16.MaxValue |> int64)
-        minMax.[TypeUtils.uint32Type] <- (System.UInt32.MinValue |> int64, System.UInt32.MaxValue |> int64)
-        minMax.[TypeUtils.uint64Type] <- (System.UInt64.MinValue |> int64, System.UInt64.MaxValue |> int64)
-
+        let supersetsOf =
+            PersistentHashMap.empty
+            |> PersistentHashMap.add TypeUtils.int8Type   [TypeUtils.int8Type; TypeUtils.int16Type; TypeUtils.int32Type; TypeUtils.int64Type]
+            |> PersistentHashMap.add TypeUtils.int16Type  [TypeUtils.int16Type; TypeUtils.int32Type; TypeUtils.int64Type]
+            |> PersistentHashMap.add TypeUtils.int32Type  [TypeUtils.int32Type; TypeUtils.int64Type]
+            |> PersistentHashMap.add TypeUtils.int64Type  [TypeUtils.int64Type]
+            |> PersistentHashMap.add TypeUtils.uint8Type  [TypeUtils.uint8Type; TypeUtils.uint16Type; TypeUtils.uint32Type; TypeUtils.uint64Type]
+            |> PersistentHashMap.add TypeUtils.uint16Type [TypeUtils.uint16Type; TypeUtils.uint32Type; TypeUtils.uint64Type]
+            |> PersistentHashMap.add TypeUtils.uint32Type [TypeUtils.uint32Type; TypeUtils.uint64Type]
+            |> PersistentHashMap.add TypeUtils.uint64Type [TypeUtils.uint64Type]
+        let isSubset leftTyp rightTyp = List.contains rightTyp (PersistentHashMap.find leftTyp supersetsOf)
+        let minMaxOf =
+            PersistentHashMap.empty
+            |> PersistentHashMap.add TypeUtils.int8Type   (System.SByte.MinValue |> int64, System.SByte.MaxValue |> int64)
+            |> PersistentHashMap.add TypeUtils.int16Type  (System.Int16.MinValue |> int64, System.Int16.MaxValue |> int64)
+            |> PersistentHashMap.add TypeUtils.int32Type  (System.Int32.MinValue |> int64, System.Int32.MaxValue |> int64)
+            |> PersistentHashMap.add TypeUtils.int64Type  (System.Int64.MinValue, System.Int64.MaxValue)
+            |> PersistentHashMap.add TypeUtils.uint8Type  (System.Byte.MinValue |> int64, System.Byte.MaxValue |> int64)
+            |> PersistentHashMap.add TypeUtils.uint16Type (System.UInt16.MinValue |> int64, System.UInt16.MaxValue |> int64)
+            |> PersistentHashMap.add TypeUtils.uint32Type (System.UInt32.MinValue |> int64, System.UInt32.MaxValue |> int64)
+            |> PersistentHashMap.add TypeUtils.uint64Type (System.UInt64.MinValue |> int64, System.UInt64.MaxValue |> int64)
         let getSegment leftTyp rightTyp =
-            let min1, max1 = minMax.[leftTyp]
-            let min2, max2 = minMax.[rightTyp]
+            let min1, max1 = PersistentHashMap.find leftTyp minMaxOf
+            let min2, max2 = PersistentHashMap.find rightTyp minMaxOf
             match min1 < min2, max1 < max2 with
             | true, true   -> min2, max1
             | true, false  -> min2, max2
             | false, true  -> min1, max1
             | false, false -> min1, max2
-
         let canCastWithoutOverflow term targetTermType =
             let (<<=) = API.Arithmetics.(<<=)
             assert(TypeUtils.isInteger term)
             let termType = Terms.TypeOf term
-            if less termType targetTermType then True
+            if isSubset termType targetTermType then True
             elif termType = TypeUtils.int64Type && targetTermType = TypeUtils.uint64Type then
                 let int64Zero = MakeNumber (0 |> int64)
                 int64Zero <<= term
@@ -384,6 +383,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 push castedResult cilState |> List.singleton |> k)
             (x.Raise x.OverflowException)
             id
+
     member private x.ConvOvfUn unsignedSightType targetType (cilState : cilState) =
         let t, cilState = pop cilState
         let unsignedT = castUnchecked unsignedSightType t cilState.state
