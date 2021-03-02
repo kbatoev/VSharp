@@ -50,6 +50,13 @@ namespace VSharp.Test.Tests
         }
 
         [TestSvm]
+        public static int NRE_TEST(ClassWithOneField c)
+        {
+            return c.x;
+        }
+
+
+        [TestSvm]
         public static Action<int> CreateLambda(bool flag)
         {
             int a = 0, b = 0, c = 0;
