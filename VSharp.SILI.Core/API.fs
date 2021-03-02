@@ -51,21 +51,15 @@ module API =
         let MakeBool b = makeBool b
         let MakeNumber n = makeNumber n
 
-        let TypeOf term = typeOf term
+        let TypeOf term = typeOf term // TODO: need to substitute type variables? #do
         let rec BaseTypeOfHeapRef state ref =
-            match ref.term with
-            | HeapRef(addr, _) -> Memory.typeOfHeapLocation state addr
-            | Union gvs ->
-                let ts = List.map (fun (_, v) -> BaseTypeOfHeapRef state v) gvs
-                match ts with
-                | [] -> __unreachable__()
-                | t::ts ->
-                    assert(List.forall ((=)t) ts)
-                    t
-            | _ -> internalfailf "reading type token: expected heap reference, but got %O" ref
+            let getType ref =
+                match ref.term with
+                | HeapRef(addr, _) -> Memory.typeOfHeapLocation state addr
+                | _ -> internalfailf "reading type token: expected heap reference, but got %O" ref
+            commonTypeOf getType ref
         let GetStrongestTypeOfHeapRef state address sightType = Memory.getStrongestTypeOfHeapRef state address sightType
 
-        // TODO: maybe transfer time from interpreter?
         let MakeFunctionResultConstant state (callSite : callSite) =
             Memory.makeFunctionResultConstant state.currentTime callSite
 
@@ -98,7 +92,7 @@ module API =
         let ObjectType = Types.objectType
         let IndexType = Types.indexType
 
-        let FromDotNetType (state : state) t = t |> Types.Constructor.fromDotNetType |> Memory.substituteTypeVariables state
+        let FromDotNetType (state : state) t = t |> Types.Constructor.fromDotNetType |> Memory.substituteTypeVariables state // TODO: need to substitute? #do
         let ToDotNetType t = Types.toDotNetType t
 
         let SizeOf t = Types.sizeOf t
@@ -126,7 +120,6 @@ module API =
             let actualType = TypeOf term
             Types.canCastImplicitly actualType targetType
         let Cast term targetType = TypeCasting.cast term targetType
-        let CastConcrete value typ = castConcrete value typ
         let CastReferenceToPointer state reference = TypeCasting.castReferenceToPointer state reference
 
     module public Operators =
@@ -153,7 +146,17 @@ module API =
     module public Memory =
         let EmptyState = Memory.empty
 
-        let PopStack state = Memory.popStack state
+        let PopFromOpStack opStack = OperationStack.pop opStack
+        let PopArgumentsFromOpStack n opStack = OperationStack.popMany n opStack
+        let PushToOpStack x opStack =
+            let x' = TypeCasting.castToOpStackType x
+            OperationStack.push x' opStack
+        let GetOpStackItem index opStack = OperationStack.item index opStack
+        let FilterOpStack f opStack = OperationStack.filter f opStack
+        let MapiOpStack f opStack = OperationStack.mapi f opStack
+        let OpStackToList opStack = OperationStack.toList opStack
+
+        let PopFrame state = Memory.popFrame state
         let PopTypeVariables state = Memory.popTypeVariablesSubstitution state
         let NewStackFrame state funcId parametersAndThis isEffect = Memory.newStackFrame state funcId parametersAndThis isEffect
         let NewTypeVariables state subst = Memory.pushTypeVariablesSubstitution state subst
@@ -236,7 +239,7 @@ module API =
 
         let BoxValueType state term =
             let address, state = Memory.freshAddress state
-            let reference = HeapRef (ConcreteHeapAddress address) Types.ObjectType // TODO: mb actual type instead of Object? #do
+            let reference = HeapRef (ConcreteHeapAddress address) Types.ObjectType
             reference, Memory.writeBoxedLocation state address term
 
         let InitializeStaticMembers state targetType =

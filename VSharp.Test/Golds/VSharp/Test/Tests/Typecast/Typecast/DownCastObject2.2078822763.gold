@@ -1,8 +1,8 @@
 METHOD: System.Int32 VSharp.Test.Tests.Typecast.Typecast.DownCastObject2(System.Object, System.Object)
 RESULT: Totally 15 states:
-5
+6
 MEMORY DUMP:
-Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ (obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ (obj2 <: VSharp.Test.Tests.Typecast.Pawn)
+Path condition: !(null == obj1) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ (obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ null == obj2
 --------------- Stack: ---------------
 key = __loc__0, value = False
 Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
@@ -14,11 +14,11 @@ Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj2 <: VSharp.Test.Test
 key = __loc__0, value = True
 Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
 
-5
+6
 MEMORY DUMP:
-Path condition: !(null == obj1) /\ !(null == obj2) /\ (obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ (obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ (obj2 <: VSharp.Test.Tests.Typecast.Pawn)
+Path condition: !(null == obj1) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ (obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ null == obj2
 --------------- Stack: ---------------
-key = __loc__0, value = True
+key = __loc__0, value = False
 Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
 
 5
@@ -30,28 +30,7 @@ Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
 
 6
 MEMORY DUMP:
-Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ !(obj2 <: VSharp.Test.Tests.Typecast.Pawn)
---------------- Stack: ---------------
-key = __loc__0, value = False
-Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
-
-6
-MEMORY DUMP:
-Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ (obj2 <: VSharp.Test.Tests.Typecast.Pawn)
---------------- Stack: ---------------
-key = __loc__0, value = False
-Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
-
-6
-MEMORY DUMP:
-Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ !(obj2 <: VSharp.Test.Tests.Typecast.Pawn) /\ (obj1 <: VSharp.Test.Tests.Typecast.Piece)
---------------- Stack: ---------------
-key = __loc__0, value = False
-Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
-
-6
-MEMORY DUMP:
-Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ !(obj2 <: VSharp.Test.Tests.Typecast.Pawn) /\ (obj1 <: VSharp.Test.Tests.Typecast.Pawn)
+Path condition: !(null == obj1) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ null == obj2
 --------------- Stack: ---------------
 key = __loc__0, value = False
 Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
@@ -65,21 +44,7 @@ Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
 
 6
 MEMORY DUMP:
-Path condition: !(null == obj1) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ null == obj2
---------------- Stack: ---------------
-key = __loc__0, value = False
-Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
-
-6
-MEMORY DUMP:
-Path condition: !(null == obj1) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ (obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ null == obj2
---------------- Stack: ---------------
-key = __loc__0, value = False
-Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
-
-6
-MEMORY DUMP:
-Path condition: !(null == obj1) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ (obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ null == obj2
+Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ (obj2 <: VSharp.Test.Tests.Typecast.Pawn)
 --------------- Stack: ---------------
 key = __loc__0, value = False
 Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
@@ -93,6 +58,13 @@ Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
 
 6
 MEMORY DUMP:
+Path condition: null == obj1 /\ null == obj2
+--------------- Stack: ---------------
+key = __loc__0, value = False
+Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
+
+6
+MEMORY DUMP:
 Path condition: !(null == obj2) /\ (obj2 <: VSharp.Test.Tests.Typecast.Pawn) /\ null == obj1
 --------------- Stack: ---------------
 key = __loc__0, value = False
@@ -100,7 +72,35 @@ Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
 
 6
 MEMORY DUMP:
-Path condition: null == obj1 /\ null == obj2
+Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ !(obj2 <: VSharp.Test.Tests.Typecast.Pawn)
+--------------- Stack: ---------------
+key = __loc__0, value = False
+Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
+
+5
+MEMORY DUMP:
+Path condition: !(null == obj1) /\ !(null == obj2) /\ (obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ (obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ (obj2 <: VSharp.Test.Tests.Typecast.Pawn)
+--------------- Stack: ---------------
+key = __loc__0, value = True
+Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
+
+6
+MEMORY DUMP:
+Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ !(obj2 <: VSharp.Test.Tests.Typecast.Pawn) /\ (obj1 <: VSharp.Test.Tests.Typecast.Pawn)
+--------------- Stack: ---------------
+key = __loc__0, value = False
+Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
+
+6
+MEMORY DUMP:
+Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ !(obj2 <: VSharp.Test.Tests.Typecast.Pawn) /\ (obj1 <: VSharp.Test.Tests.Typecast.Piece)
+--------------- Stack: ---------------
+key = __loc__0, value = False
+Initialized types = { VSharp.Test.Tests.Typecast.Typecast }
+
+5
+MEMORY DUMP:
+Path condition: !(null == obj1) /\ !(null == obj2) /\ !(obj1 <: VSharp.Test.Tests.Typecast.Pawn) /\ (obj1 <: VSharp.Test.Tests.Typecast.Piece) /\ (obj2 <: VSharp.Test.Tests.Typecast.Pawn)
 --------------- Stack: ---------------
 key = __loc__0, value = False
 Initialized types = { VSharp.Test.Tests.Typecast.Typecast }

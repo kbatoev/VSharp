@@ -103,7 +103,7 @@ module internal Z3 =
                 | Application sf ->
                     let decl = ctx.MkConstDecl(sf |> toString |> IdGenerator.startingWith, x.Type2Sort typ)
                     ctx.MkApp(decl, x.EncodeTerms stopper args)
-                | Cast(Numeric _, Numeric _) -> x.EncodeTermExt stopper (List.head args)
+                | Cast(Numeric _) -> x.EncodeTermExt stopper (List.head args)
                 | Cast _ ->
                     __notImplemented__())
 

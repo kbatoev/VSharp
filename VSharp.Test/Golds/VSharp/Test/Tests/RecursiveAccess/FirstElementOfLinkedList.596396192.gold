@@ -1,9 +1,9 @@
 METHOD: System.Int32 VSharp.Test.Tests.RecursiveAccess.FirstElementOfLinkedList(System.Collections.Generic.LinkedList`1[System.Int32])
 RESULT: Totally 3 states:
-0
+1
 MEMORY DUMP:
-Path condition: l == null
-Initialized types = { VSharp.Test.Tests.RecursiveAccess }
+Path condition: !(l == null) /\ l.head == null
+Initialized types = { VSharp.Test.Tests.RecursiveAccess, System.Collections.Generic.LinkedList`1[System.Int32] }
 
 1 + l.head.item
 MEMORY DUMP:
@@ -14,7 +14,7 @@ item ==> {l.head <- 1 + l.head.item}
 key = __loc__0, value = 1 + l.head.item
 Initialized types = { System.Collections.Generic.LinkedListNode`1[System.Int32], VSharp.Test.Tests.RecursiveAccess, System.Collections.Generic.LinkedList`1[System.Int32] }
 
-1
+0
 MEMORY DUMP:
-Path condition: !(l == null) /\ l.head == null
-Initialized types = { VSharp.Test.Tests.RecursiveAccess, System.Collections.Generic.LinkedList`1[System.Int32] }
+Path condition: l == null
+Initialized types = { VSharp.Test.Tests.RecursiveAccess }

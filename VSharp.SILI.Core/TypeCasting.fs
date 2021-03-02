@@ -148,15 +148,13 @@ module internal TypeCasting =
             match term.term with
             | Concrete(value, _) -> canCastConcrete value targetType |> makeBool
             | Ptr(_, typ, _) -> typeIsType (Pointer typ) targetType
-            | Ref _ -> typeIsType (typeOfRef term) targetType
+            | Ref address -> typeIsType (Memory.baseTypeOfAddress state address) targetType
             | HeapRef(address, _) ->
                 let baseType = Memory.typeOfHeapLocation state address
                 addressIsType address baseType targetType
             | _ -> typeIsType (typeOf term) targetType
         Merging.guardedApply castCheck term
 
-    // Now cast makes: casts, conversions, coercions
-    // TODO: split whose someday
     let cast term targetType =
         let castUnguarded term =
             match typeOf term with
@@ -182,3 +180,16 @@ module internal TypeCasting =
             let typ = commonTypeOf getType reference
             Terms.castReferenceToPointer typ reference
         Merging.guardedApply doCast reference
+
+    let castToOpStackType x =
+        match typeOf x with
+        // TODO: add conversion from bool to int someday
+        // | Bool -> cast x Int32
+        | Numeric(Id typ) when typ = typeof<int8>   -> cast x Int32
+        | Numeric(Id typ) when typ = typeof<int16>  -> cast x Int32
+        | Numeric(Id typ) when typ = typeof<byte>   -> cast x Int32
+        | Numeric(Id typ) when typ = typeof<char>   -> cast x Int32
+        | Numeric(Id typ) when typ = typeof<uint16> -> cast x Int32
+        | Numeric(Id typ) when typ = typeof<uint32> -> cast x Int32
+        | Numeric(Id typ) when typ = typeof<uint64> -> cast x Int64
+        | _ -> x

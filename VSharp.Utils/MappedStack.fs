@@ -22,7 +22,7 @@ module public MappedStack =
         let contents' = Map.add key' value contents
         contents', peaks'
 
-    let reserve key n (contents, peaks) = // TODO: mb take only peaks? #do
+    let reserve key n (contents, peaks) =
         let idx = peakIdx peaks key + n
         let peaks' = Map.add key idx peaks
         contents, peaks'

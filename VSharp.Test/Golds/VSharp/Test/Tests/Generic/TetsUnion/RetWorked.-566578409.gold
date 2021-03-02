@@ -1,10 +1,8 @@
 METHOD: System.Int32 VSharp.Test.Tests.Generic.TetsUnion.RetWorked(System.Object, System.Int32)
 RESULT: Totally 5 states:
-11
+a
 MEMORY DUMP:
-Path condition: !(null == obj) /\ (obj <: VSharp.Test.Tests.Typecast.BlackPawn) /\ (obj <: VSharp.Test.Tests.Typecast.Pawn)
---------------- Stack: ---------------
-key = a, value = 11
+Path condition: null == obj
 Initialized types = { VSharp.Test.Tests.Generic.TetsUnion }
 
 5
@@ -21,12 +19,14 @@ Path condition: !(null == obj) /\ !(obj <: VSharp.Test.Tests.Typecast.BlackPawn)
 key = a, value = 6 + a
 Initialized types = { VSharp.Test.Tests.Generic.TetsUnion }
 
-a
+11
 MEMORY DUMP:
-Path condition: !(null == obj) /\ !(obj <: VSharp.Test.Tests.Typecast.BlackPawn) /\ !(obj <: VSharp.Test.Tests.Typecast.Pawn)
+Path condition: !(null == obj) /\ (obj <: VSharp.Test.Tests.Typecast.BlackPawn) /\ (obj <: VSharp.Test.Tests.Typecast.Pawn)
+--------------- Stack: ---------------
+key = a, value = 11
 Initialized types = { VSharp.Test.Tests.Generic.TetsUnion }
 
 a
 MEMORY DUMP:
-Path condition: null == obj
+Path condition: !(null == obj) /\ !(obj <: VSharp.Test.Tests.Typecast.BlackPawn) /\ !(obj <: VSharp.Test.Tests.Typecast.Pawn)
 Initialized types = { VSharp.Test.Tests.Generic.TetsUnion }

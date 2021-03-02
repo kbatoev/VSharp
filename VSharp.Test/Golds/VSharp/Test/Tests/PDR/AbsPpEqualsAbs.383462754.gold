@@ -9,16 +9,16 @@ Initialized types = { VSharp.Test.Tests.PDR }
 
 True
 MEMORY DUMP:
-Path condition: !(x < 0) /\ !(x <= 0)
+Path condition: !(-x < 0) /\ x <= 0
 --------------- Stack: ---------------
-key = __loc__0, value = x
+key = __loc__0, value = -x
 Initialized types = { VSharp.Test.Tests.PDR }
 
 True
 MEMORY DUMP:
-Path condition: !(-x < 0) /\ x <= 0
+Path condition: !(x < 0) /\ !(x <= 0)
 --------------- Stack: ---------------
-key = __loc__0, value = -x
+key = __loc__0, value = x
 Initialized types = { VSharp.Test.Tests.PDR }
 
 -x == 0

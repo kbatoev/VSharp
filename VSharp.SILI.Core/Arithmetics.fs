@@ -285,6 +285,9 @@ module internal Arithmetics =
                 | x, UnaryMinusT(y, _) when not <| isUnsigned t && x = y -> castConcrete -1 t |> k
                 // (a >> b) / 2^n = a >> (b + n) if unchecked, b is concrete, b + n < (size of a) * 8
                 // (a >> b) / 2^n = 0 if unchecked, b is concrete, b + n >= (size of a) * 8
+//                | CastExpr(ShiftRight(a, b, Numeric(Id t2)), (Numeric(Id t1) as t)) when not <| typeIsLessType t1 t2 -> Some(ShiftRight(primitiveCast x t, y, t)) ->
+//                | CastExpr(ShiftRight(a, ConcreteT(b, bt), Numeric(Id t2)), Numeric(Id t1)), ConcreteT(powOf2, _) when not <| typeIsLessType t1 t2 -> Some(ShiftRight(primitiveCast x t, y, t)) ->
+        | Expression(Cast ((Numeric(Id t1)) as t), [ShiftRight(x, y, (Numeric(Id t2)))], _) when not <| typeIsLessType t1 t2 -> Some(ShiftRight(primitiveCast x t, y, t))
                 | ShiftRight(a, ConcreteT(b, bt), _), ConcreteT(powOf2, _)
                     when Calculator.IsPowOfTwo(powOf2) && a |> typeOf |> toDotNetType |> isUnsigned ->
                         let n = Calculator.WhatPowerOf2(powOf2)
@@ -394,9 +397,9 @@ module internal Arithmetics =
             let xt' = toDotNetType xt
             simplifyShift op t a (castConcrete (Calculator.Add(x, c, xt')) xt') matched
         // (a op b) op y = 0 if unchecked, b and y are concrete, b + y >= (size of a) * 8
-        | Concrete(_, _), Concrete(_, _), OperationType.ShiftLeft ->
+        | Concrete _, Concrete _, OperationType.ShiftLeft ->
             castConcrete 0 t |> matched
-        | Concrete(_, _), Concrete(_, _), OperationType.ShiftRight when a |> typeOf |> toDotNetType |> isUnsigned ->
+        | Concrete _, Concrete _, OperationType.ShiftRight when a |> typeOf |> toDotNetType |> isUnsigned ->
             castConcrete 0 t |> matched
         | _ -> unmatched ()
 
@@ -421,9 +424,9 @@ module internal Arithmetics =
         let defaultCase () =
             makeShift operation t x y k
         simplifyGenericBinary "shift" x y k
-                                (simplifyConcreteBinary (simplifyConcreteShift operation) t)
-                                (fun x y k -> simplifyShiftExt operation t x y k defaultCase)
-                                (fun x y k -> simplifyShift operation t x y k)
+            (simplifyConcreteBinary (simplifyConcreteShift operation) t)
+            (fun x y k -> simplifyShiftExt operation t x y k defaultCase)
+            (fun x y k -> simplifyShift operation t x y k)
 
 // TODO: IMPLEMENT BITWISE OPERATIONS!
     and private simplifyBitwise (op : OperationType) x y t resType k =

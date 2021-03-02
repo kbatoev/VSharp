@@ -39,18 +39,18 @@ type public ExplorerBase() =
         | _ -> internalfailf "unexpected entry point: expected regular method, but got %O" id
 
     member x.Explore (funcId : IFunctionIdentifier) (k : codeLocationSummary seq -> 'a) =
-            let k = API.Reset(); fun x -> API.Restore(); k x
-            CurrentlyBeingExploredLocations.Add funcId |> ignore
-            let initialStates = x.FormInitialState funcId
-            let removePCs this thisIsNotNull (cilState : cilState) =
-                if Option.isSome this && thisIsNotNull <> True then
-                    {cilState with state = RemovePathCondition cilState.state thisIsNotNull}
-                else cilState
-            let invoke (cilState, this, thisIsNotNull) = x.Invoke funcId cilState (List.map (removePCs this thisIsNotNull))
-            let resultsAndStates =
-                initialStates |> List.map invoke |> List.concat |> List.map (fun cilState -> {cilState = cilState})
-            CurrentlyBeingExploredLocations.Remove funcId |> ignore
-            k resultsAndStates
+        let k = API.Reset(); fun x -> API.Restore(); k x
+        CurrentlyBeingExploredLocations.Add funcId |> ignore
+        let initialStates = x.FormInitialState funcId
+        let removePCs this thisIsNotNull (cilState : cilState) =
+            if Option.isSome this && thisIsNotNull <> True then
+                {cilState with state = RemovePathCondition cilState.state thisIsNotNull}
+            else cilState
+        let invoke (cilState, this, thisIsNotNull) = x.Invoke funcId cilState (List.map (removePCs this thisIsNotNull))
+        let resultsAndStates =
+            initialStates |> List.map invoke |> List.concat |> List.map (fun cilState -> {cilState = cilState})
+        CurrentlyBeingExploredLocations.Remove funcId |> ignore
+        k resultsAndStates
 
     member private x.ReproduceEffectOrUnroll areWeStuck body (id : IFunctionIdentifier) cilState k =
         if areWeStuck then
@@ -81,7 +81,7 @@ type public ExplorerBase() =
 //        else
         let methodId = x.MakeMethodIdentifier methodBase
         let invoke state k = x.Invoke methodId state k
-        let cilState = withOpStack [] initialCilState
+        let cilState = withOpStack emptyOpStack initialCilState
         let restoreOpStack cilState = withOpStack initialCilState.state.opStack cilState
         x.EnterRecursiveRegion methodId cilState invoke (List.map restoreOpStack >> k)
 
@@ -121,7 +121,7 @@ type public ExplorerBase() =
                 let thisKey = ThisKey methodBase
                 (thisKey, Specified thisValue, TypeOf thisValue) :: parameters // TODO: incorrect type when ``this'' is Ref to stack
             | None -> parameters
-        Memory.NewStackFrame state funcId (parametersAndThis @ locals) isEffect |> k // TODO: need to change FQL in "parametersAndThis" before adding it to stack frames (ClassesSimplePropertyAccess.TestProperty1) #FQLsNotEqual
+        Memory.NewStackFrame state funcId (parametersAndThis @ locals) isEffect |> k
 
     member private x.InitStaticFieldWithDefaultValue state (f : FieldInfo) =
         assert(f.IsStatic)
@@ -156,7 +156,7 @@ type public ExplorerBase() =
                     match staticConstructor with
                     | Some cctor ->
                         let removeCallSiteResultAndPopStack (cilStateAfterCallingCCtor : cilState) =
-                            let stateAfterCallingCCtor = Memory.PopStack cilStateAfterCallingCCtor.state
+                            let stateAfterCallingCCtor = Memory.PopFrame cilStateAfterCallingCCtor.state
                             let stateWithoutCallSiteResult = {stateAfterCallingCCtor with callSiteResults = state.callSiteResults; opStack = state.opStack}
                             {cilStateAfterCallingCCtor with state = stateWithoutCallSiteResult}
                         x.ReduceFunctionSignature state cctor None (Specified []) false (fun state ->

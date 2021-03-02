@@ -55,6 +55,9 @@ module public Reflection =
         | :? MethodInfo as m -> m.ReturnType
         | _ -> internalfail "unknown MethodBase"
 
+    let public HasNonVoidResult calledMethod =
+        GetMethodReturnType calledMethod <> typeof<System.Void>
+
     let public GetFullMethodName (methodBase : MethodBase) =
         let returnType = GetMethodReturnType methodBase
         methodBase.GetParameters()
@@ -157,7 +160,6 @@ module public Reflection =
     // --------------------------------- Fields ---------------------------------
 
     let wrapField (field : FieldInfo) =
-        // TODO: why safeGenericTypeDefinition? #Dima
         {declaringType = field.DeclaringType; name = field.Name; typ = field.FieldType}
 
     let rec private retrieveFields isStatic f (t : System.Type) =

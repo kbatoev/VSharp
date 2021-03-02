@@ -410,6 +410,50 @@ namespace VSharp.Test.Tests
             return checked ((x / 0.01) + x1);
         }
 
+        public static object ReturnNull()
+        {
+            return null;
+        }
+
+        // Expecting +Infinity
+        [TestSvm]
+        public static double CheckOverflow4()
+        {
+            double x = Double.MaxValue;
+            double y = Double.MaxValue;
+            return checked (x + y);
+        }
+
+        [TestSvm]
+        public static long SumOfIntAndUint(int a, uint b)
+        {
+            return b + a;
+        }
+
+        // Expecting +Infinity
+        [TestSvm]
+        public static long CheckSumOfSingedAndUnsigned()
+        {
+            int x = 42;
+            uint y = UInt32.MaxValue;
+            return SumOfIntAndUint(x, y);
+        }
+
+        [TestSvm]
+        public static long SumOfIntAndShort(int a, short b)
+        {
+            return b + a;
+        }
+
+        // Expecting +Infinity
+        [TestSvm]
+        public static long CheckSumOfIntAndShort()
+        {
+            int x = 42;
+            short y = Int16.MaxValue;
+            return SumOfIntAndShort(x, y);
+        }
+
         // Expecting devide by zero error
         [Ignore("Exceptions handling")]
         public static int CheckDivideByZeroException0(int x1)

@@ -1,5 +1,7 @@
 namespace VSharp.Core
 
+open System.Collections.Generic
+
 #nowarn "69"
 
 open VSharp
@@ -182,18 +184,7 @@ module internal Types =
         | AddressType -> typeof<AddressTypeAgent>
         | Null -> __unreachable__()
 
-    let sizeOf typ = // Reflection hacks, don't touch! Marshal.SizeOf lies!
-        let internalSizeOf (typ: Type) : uint32 =
-            let meth = Reflection.Emit.DynamicMethod("GetManagedSizeImpl", typeof<uint32>, null);
-
-            let gen = meth.GetILGenerator()
-            gen.Emit(Reflection.Emit.OpCodes.Sizeof, typ)
-            gen.Emit(Reflection.Emit.OpCodes.Ret)
-
-            meth.CreateDelegate(typeof<Func<uint32>>).DynamicInvoke()
-            |> unbox
-        typ |> toDotNetType |> internalSizeOf |> int
-
+    let sizeOf typ = typ |> toDotNetType |> TypeUtils.internalSizeOf |> int
 
     let bitSizeOfType t (resultingType : System.Type) = System.Convert.ChangeType(sizeOf(t) * 8, resultingType)
 
@@ -260,8 +251,10 @@ module internal Types =
     open Constructor
 
     let public Char = Numeric typedefof<char>
-
     let public String = fromDotNetType typedefof<string>
+    let Int32 = Numeric typeof<int>
+    let Int64 = Numeric typeof<int64>
+    let F = Numeric typeof<float>
 
     let (|StringType|_|) = function
         | typ when typ = String -> Some()
@@ -293,7 +286,7 @@ module internal Types =
 
     let canCastImplicitly leftType rightType =
         let canCast leftType (rightType : Type) =
-            rightType.IsAssignableFrom(leftType) || TypeUtils.canCoerce leftType rightType
+            rightType.IsAssignableFrom(leftType) || TypeUtils.canConvert leftType rightType
         commonCanCast canCast leftType rightType
 
 type symbolicType with

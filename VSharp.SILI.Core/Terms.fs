@@ -75,13 +75,12 @@ type EmptyIdentifier() =
 type operation =
     | Operator of OperationType
     | Application of StandardFunction
-    | Cast of symbolicType * symbolicType
+    | Cast of symbolicType
     member x.priority =
         match x with
         | Operator op -> Operations.operationPriority op
         | Application _ -> Operations.maxPriority
         | Cast _ -> Operations.maxPriority - 1
-
 
 // TODO: symbolic type -> primitive type
 // TODO: get rid of Nop!
@@ -139,9 +138,9 @@ type termNode =
                     sortedOperands
                         |> String.concat (Operations.operationToString operator)
                         |> checkExpression operation.priority parentPriority
-                | Cast(_, dest) ->
+                | Cast dest ->
                     assert (List.length operands = 1)
-                    sprintf "(%O)%s" dest (toStr operation.priority indent (List.head operands).term) |>
+                    sprintf "(%O %s)" dest (toStr operation.priority indent (List.head operands).term) |>
                         checkExpression operation.priority parentPriority
                 | Application f -> operands |> List.map (getTerm >> toStr -1 indent) |> join ", " |> sprintf "%O(%s)" f
             | Struct(fields, t) ->
@@ -181,7 +180,7 @@ and address =
     | PrimitiveStackLocation of stackKey
     | StructField of address * fieldId
     | StackBufferIndex of stackKey * term
-    | BoxedLocation of concreteHeapAddress * symbolicType // TODO: mb delete type here? #do
+    | BoxedLocation of concreteHeapAddress * symbolicType // TODO: mb delete type from boxed location? #do
     | ClassField of heapAddress * fieldId
     | ArrayIndex of heapAddress * term list * arrayType
     | ArrayLowerBound of heapAddress * term * arrayType
@@ -379,8 +378,8 @@ module internal Terms =
     let sizeOf = typeOf >> Types.sizeOf
     let bitSizeOf term resultingType = Types.bitSizeOfType (typeOf term) resultingType
 
-    let isBool t =     typeOf t |> Types.isBool
-    let isNumeric t =  typeOf t |> Types.isNumeric
+    let isBool t =    typeOf t |> Types.isBool
+    let isNumeric t = typeOf t |> Types.isNumeric
 
     let rec isStruct term =
         match term.term with
@@ -402,21 +401,16 @@ module internal Terms =
         let actualType = TypeUtils.getTypeOfConcrete concrete
         actualType = targetType || targetType.IsAssignableFrom(actualType)
 
-    let castConcrete (concrete : obj) (t : Type) = // TODO: split this into conversion, coercion and cast functions
+    let castConcrete (concrete : obj) (t : Type) =
         let actualType = TypeUtils.getTypeOfConcrete concrete
         let functionIsCastedToMethodPointer () =
-            typedefof<System.Reflection.MethodBase>.IsAssignableFrom(actualType) && typedefof<System.IntPtr>.IsAssignableFrom(t)
+            typedefof<System.Reflection.MethodBase>.IsAssignableFrom(actualType) && typedefof<IntPtr>.IsAssignableFrom(t)
         if actualType = t then
             Concrete concrete (fromDotNetType t)
         elif t.IsEnum && t.GetEnumUnderlyingType().IsAssignableFrom(actualType) || actualType.IsEnum && actualType.GetEnumUnderlyingType().IsAssignableFrom(t) then
             Concrete concrete (fromDotNetType t)
-        elif TypeUtils.isConvertible actualType t then
-            let casted =
-                if t.IsPointer then IntPtr(Convert.ChangeType(concrete, typedefof<int64>) :?> int64) |> box
-                elif TypeUtils.canCoerce t actualType then TypeUtils.coercion concrete t
-                // It is needed for conversions from Int to Double (test: UnboxAny1)
-                else TypeUtils.convert concrete t // TODO: if we need coercion then behavior is different from convert! (example: double)
-            Concrete casted (fromDotNetType t)
+        elif TypeUtils.canConvert actualType t then
+            Concrete (TypeUtils.convert concrete t) (fromDotNetType t)
         elif t.IsAssignableFrom(actualType) then
             Concrete concrete (fromDotNetType t)
         elif functionIsCastedToMethodPointer() then
@@ -461,17 +455,28 @@ module internal Terms =
         assert(Operations.isUnary operation)
         Expression (Operator operation) [x] t
 
-    let private makeCast srcTyp dstTyp expr =
-        if srcTyp = dstTyp then expr
-        else Expression (Cast(srcTyp, dstTyp)) [expr] dstTyp
+    let (|CastExpr|_|) = term >> function
+        | Expression(Cast dstType, [x], t) ->
+            assert(dstType = t)
+            Some(CastExpr(x, dstType))
+        | _ -> None
+
+    let private typeIsLessType t1 t2 = TypeUtils.internalSizeOf t1 < TypeUtils.internalSizeOf t2 // TODO: make this faster? #do
+
+    let rec private simplifyCast term castType =
+        match term, castType with
+        | _ when typeOf term = castType -> term // TODO: make better #do
+        | CastExpr(x, Numeric(Id t)), Numeric(Id dstType) when not <| typeIsLessType t dstType ->
+            simplifyCast x castType
+        | _ -> Expression (Cast castType) [term] castType
 
     let rec primitiveCast term targetType =
         match term.term with
         | _ when typeOf term = targetType -> term
         | Concrete(value, _) -> castConcrete value (Types.toDotNetType targetType)
         // TODO: make cast to Bool like function Transform2BooleanTerm
-        | Constant(_, _, t)
-        | Expression(_, _, t) -> makeCast t targetType term
+        | Constant _
+        | Expression _ -> simplifyCast term targetType
         | Union gvs -> gvs |> List.map (fun (g, v) -> (g, primitiveCast v targetType)) |> Union
         | _ -> __unreachable__()
 
@@ -542,7 +547,7 @@ module internal Terms =
         | Expression(Operator OperationType.ShiftLeft, [x;y], t) -> Some(ShiftLeft(x, y, t))
         | _ -> None
 
-    let (|ShiftRight|_|) = term >> function
+    let rec (|ShiftRight|_|) = term >> function // TODO: make better #do
         | Expression(Operator OperationType.ShiftRight, [x;y], t) -> Some(ShiftRight(x, y, t))
         | _ -> None
 

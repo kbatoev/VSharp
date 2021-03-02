@@ -6,7 +6,7 @@ namespace VSharp.Test.Tests
 {
     [TestSvmFixture]
     [Ignore("Need exceptions for all tests")]
-    public class Conversions
+    public class ConversionsOvf
     {
         [TestSvm]
         public static int Conv_Ovf_long_int(long a)
@@ -140,6 +140,22 @@ namespace VSharp.Test.Tests
         public static UIntPtr Conv_Ovf_int_UNativeInt(int a)
         {
             return checked((UIntPtr) a);
+        }
+    }
+
+    [TestSvmFixture]
+    public class Conversions
+    {
+        [TestSvm]
+        public static uint Conv(double n)
+        {
+            return (uint) n;
+        }
+
+        [TestSvm]
+        public static uint ConvTest()
+        {
+            return Conv(Int32.MinValue);
         }
     }
 }

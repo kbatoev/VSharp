@@ -161,11 +161,11 @@ namespace VSharp.Test
             }
 
             int count = 0;
-            if (summary == null || (count = summary.Summaries.Count()) == 0)
+            if ((count = summary.Summaries.Count()) == 0)
                 return "No states were obtained!";
             var suffix = count > 1 ? "s" : "";
             var collectionBeforeSorting = summary.Summaries.Select(SummaryToString);
-            var collectionAfterSorting = collectionBeforeSorting.OrderBy(x => x); // TODO: Calculator.GetDeterministicHashCode( #do
+            var collectionAfterSorting = collectionBeforeSorting.OrderBy(x => x.GetDeterministicHashCode());
             return $"Totally {count} state{suffix}:\n{String.Join("\n", collectionAfterSorting)}";
         }
 

@@ -98,7 +98,6 @@ module API =
         val IsCast : state -> term -> symbolicType -> term
         val canCastImplicitly : term -> symbolicType -> bool
         val Cast : term -> symbolicType -> term
-        val CastConcrete : 'a -> System.Type -> term
         val CastReferenceToPointer : state -> term -> term
 
     [<AutoOpen>]
@@ -126,7 +125,15 @@ module API =
     module public Memory =
         val EmptyState : state
 
-        val PopStack : state -> state
+        val PopFromOpStack : operationStack -> term * operationStack
+        val PopArgumentsFromOpStack : int -> operationStack -> term list * operationStack
+        val PushToOpStack : term -> operationStack -> operationStack
+        val GetOpStackItem : int -> operationStack -> term
+        val FilterOpStack : (term -> bool) -> operationStack -> operationStack
+        val MapiOpStack : (int -> term -> term) -> operationStack -> operationStack
+        val OpStackToList : operationStack -> term list
+
+        val PopFrame : state -> state
         val PopTypeVariables : state -> state
         val NewStackFrame : state -> IFunctionIdentifier -> (stackKey * term symbolicValue * symbolicType) list -> bool -> state
         val NewTypeVariables : state -> (typeId * symbolicType) list -> state

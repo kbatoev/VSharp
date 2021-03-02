@@ -62,18 +62,18 @@ module internal TypeUtils =
     let isFloatTermType typ = typ = float32TermType || typ = float64TermType
     let isInteger = Terms.TypeOf >> isIntegerTermType
     let isBool = Terms.TypeOf >> IsBool
-    let (|Int8|_|) t = if Terms.TypeOf t = int8Type then Some(t) else None
-    let (|UInt8|_|) t = if Terms.TypeOf t = uint8Type then Some(t) else None
-    let (|Int16|_|) t = if Terms.TypeOf t = int16Type then Some(t) else None
-    let (|UInt16|_|) t = if Terms.TypeOf t = uint16Type then Some(t) else None
-    let (|Int32|_|) t = if Terms.TypeOf t = int32Type then Some(t) else None
-    let (|UInt32|_|) t = if Terms.TypeOf t = uint32Type then Some(t) else None
-    let (|Int64|_|) t = if Terms.TypeOf t = int64Type then Some(t) else None
-    let (|UInt64|_|) t = if Terms.TypeOf t = uint64Type then Some(t) else None
-    let (|Bool|_|) t = if isBool t then Some(t) else None
-    let (|Float32|_|) t = if Terms.TypeOf t = float32TermType then Some(t) else None
-    let (|Float64|_|) t = if Terms.TypeOf t = float64TermType then Some(t) else None
-    let (|Float|_|) t = if Terms.TypeOf t |> isFloatTermType then Some(t) else None
+    let (|Int8|_|) t = if Terms.TypeOf t = int8Type then Some() else None
+    let (|UInt8|_|) t = if Terms.TypeOf t = uint8Type then Some() else None
+    let (|Int16|_|) t = if Terms.TypeOf t = int16Type then Some() else None
+    let (|UInt16|_|) t = if Terms.TypeOf t = uint16Type then Some() else None
+    let (|Int32|_|) t = if Terms.TypeOf t = int32Type then Some() else None
+    let (|UInt32|_|) t = if Terms.TypeOf t = uint32Type then Some() else None
+    let (|Int64|_|) t = if Terms.TypeOf t = int64Type then Some() else None
+    let (|UInt64|_|) t = if Terms.TypeOf t = uint64Type then Some() else None
+    let (|Bool|_|) t = if isBool t then Some() else None
+    let (|Float32|_|) t = if Terms.TypeOf t = float32TermType then Some() else None
+    let (|Float64|_|) t = if Terms.TypeOf t = float64TermType then Some() else None
+    let (|Float|_|) t = if Terms.TypeOf t |> isFloatTermType then Some() else None
 
     module Char =
         let Zero = MakeNumber '\000'
@@ -105,8 +105,6 @@ module internal TypeUtils =
 
 module internal InstructionsSet =
     open CilStateOperations
-
-    let __corruptedStack__() = raise (InvalidProgramException())
 
     let idTransformation term k = k term
 
@@ -160,134 +158,98 @@ module internal InstructionsSet =
 
     // ------------------------------- CIL instructions -------------------------------
 
-    let getVarTerm state index (methodBase : MethodBase) =
+    let referenceLocalVariable index (methodBase : MethodBase) =
         let lvi = methodBase.GetMethodBody().LocalVariables.[index]
         let stackKey = LocalVariableKey(lvi, methodBase)
-        let typ = Types.FromDotNetType state lvi.LocalType
-        Ref (PrimitiveStackLocation stackKey), state, typ
+        Ref (PrimitiveStackLocation stackKey)
     let getArgTerm index (methodBase : MethodBase) =
         let pi = methodBase.GetParameters().[index]
         PrimitiveStackLocation (ParameterKey pi) |> Ref
 
     let castReferenceToPointerIfNeeded term typ state =
         if IsReference term && Types.IsPointer typ
-        then Types.CastReferenceToPointer state term // TODO: casting to pointer is weird
+        then Types.CastReferenceToPointer state term
         else term
     let castUnchecked typ term (state : state) : term =
         let term = castReferenceToPointerIfNeeded term typ state
         Types.Cast term typ
-    let popOperationalStack (cilState : cilState) =
-        match cilState.state.opStack with
-        | t :: ts -> Some t, {cilState with state = {cilState.state with opStack = ts}}
-        | [] -> None, cilState
     let ldc numberCreator t (cfg : cfgData) shiftedOffset (cilState : cilState) =
         let num = numberCreator cfg.ilBytes shiftedOffset
         let termType = Types.FromDotNetType cilState.state t
-        pushToOpStack (Concrete num termType) cilState |> List.singleton
+        push (Concrete num termType) cilState |> List.singleton
 
     let ldloc numberCreator (cfg : cfgData) shiftedOffset (cilState : cilState) =
         let index = numberCreator cfg.ilBytes shiftedOffset
-        let reference, state, _ = getVarTerm cilState.state index cfg.methodBase
-        let term = Memory.ReadSafe state reference
-        pushResultOnOpStack cilState (term, state) :: []
+        let reference = referenceLocalVariable index cfg.methodBase
+        let term = Memory.ReadSafe cilState.state reference
+        push term cilState |> List.singleton
 
     let ldarg numberCreator (cfg : cfgData) shiftedOffset (cilState : cilState) =
         let argumentIndex = numberCreator cfg.ilBytes shiftedOffset
-        let state = cilState.state
-        let arg, state =
+        let arg =
+            let state = cilState.state
             let this = if cfg.methodBase.IsStatic then None else Some <| Memory.ReadThis state cfg.methodBase
             match this, cfg.methodBase.IsStatic with
             | None, _
             | Some _, true ->
                 let term = getArgTerm argumentIndex cfg.methodBase
-                Memory.ReadSafe state term, state
-            | Some this, _ when argumentIndex = 0 -> this, state
+                Memory.ReadSafe state term
+            | Some this, _ when argumentIndex = 0 -> this
             | Some _, false ->
                 let term = getArgTerm (argumentIndex - 1) cfg.methodBase
-                Memory.ReadSafe state term, state
-        pushResultOnOpStack cilState (arg, state) :: []
+                Memory.ReadSafe state term
+        push arg cilState |> List.singleton
     let ldarga numberCreator (cfg : cfgData) shiftedOffset (cilState : cilState) =
         let argumentIndex = numberCreator cfg.ilBytes shiftedOffset
-        let state = cilState.state
         let address =
-            let this = if cfg.methodBase.IsStatic then None else Some <| Memory.ReadThis state cfg.methodBase
+            let this = if cfg.methodBase.IsStatic then None else Some <| Memory.ReadThis cilState.state cfg.methodBase
             match this with
             | None -> getArgTerm argumentIndex cfg.methodBase
             | Some _ when argumentIndex = 0 -> internalfail "can't load address of ``this''"
             | Some _ -> getArgTerm (argumentIndex - 1) cfg.methodBase
-        pushResultOnOpStack cilState (address, state) :: []
+        push address cilState |> List.singleton
     let stloc numberCreator (cfg : cfgData) shiftedOffset (cilState : cilState) =
         let variableIndex = numberCreator cfg.ilBytes shiftedOffset
+        let right, cilState = pop cilState
         let state = cilState.state
-        let left, state, typ = getVarTerm state variableIndex cfg.methodBase
-        match state.opStack with
-        | right :: stack ->
-            let value = castUnchecked typ right state
-            let states = Memory.WriteSafe state left value
-            states |> List.map (fun state -> cilState |> withState state |> withOpStack stack)
-        | _ -> __corruptedStack__()
+        let left = referenceLocalVariable variableIndex cfg.methodBase // TODO: change mb #do
+        let typ = TypeOf left
+        let value = castUnchecked typ right state
+        let states = Memory.WriteSafe state left value
+        states |> List.map (fun state -> cilState |> withState state)
     let private simplifyConditionResult state res k =
         let pc = GetConditionOfState state
         if pc &&& !!res = False then k True
         elif pc &&& res = False then k False
         else k res
-    let performCILUnaryOperation op (cilState : cilState) = // TODO: make code better #do
-        // TODO: why isChecked is unused?
-        match cilState.state.opStack with
-        | x :: stack ->
-            API.PerformUnaryOperation op x (fun interimRes ->
-            let res = if Terms.TypeOf x |> Types.IsBool then simplifyConditionResult cilState.state interimRes id else interimRes
-            withOpStack (res :: stack) cilState |> List.singleton)
-        | _ -> __corruptedStack__()
+    let performCILUnaryOperation op (cilState : cilState) =
+        let x, cilState = pop cilState
+        API.PerformUnaryOperation op x (fun interimRes ->
+        let res = if Terms.TypeOf x |> Types.IsBool then simplifyConditionResult cilState.state interimRes id else interimRes
+        push res cilState |> List.singleton)
+
     let performCILBinaryOperation op operand1Transform operand2Transform resultTransform (cilState : cilState) =
-        match cilState.state.opStack with
-        | arg2 :: arg1 :: stack ->
-            operand1Transform arg1 (fun arg1 ->
-            operand2Transform arg2 (fun arg2 ->
-            API.PerformBinaryOperation op arg1 arg2 (fun interimRes ->
-            resultTransform interimRes (fun res ->
-            withOpStack (res :: stack) cilState |> List.singleton))))
-        | _ -> __corruptedStack__()
-    let makeSignedInteger term k = // TODO: ask Kostya: it is not always creates signed integer #do
-        let typ = Terms.TypeOf term
-        let signedTyp = TypeUtils.unsigned2signedOrId typ
-        if TypeUtils.isIntegerTermType typ && typ <> signedTyp then
-            // TODO: check whether term is not pointer
-            k <| Types.Cast term signedTyp // no specs found about overflows
-        else k term
+        let arg2, arg1, cilState = pop2 cilState
+        operand1Transform arg1 (fun arg1 ->
+        operand2Transform arg2 (fun arg2 ->
+        API.PerformBinaryOperation op arg1 arg2 (fun interimRes ->
+        resultTransform interimRes (fun res ->
+        push res cilState |> List.singleton))))
     let standardPerformBinaryOperation op =
-        performCILBinaryOperation op makeSignedInteger makeSignedInteger idTransformation
-    let shiftOperation op (cilState : cilState) =
-        let reinterpret termType term k = k <| Types.Cast term termType
-        match cilState.state.opStack with
-        | _ :: value :: _ ->
-            let op1trans, resTrans =
-                match value with
-                | TypeUtils.Bool _
-                | TypeUtils.Int8 _
-                | TypeUtils.UInt8 _
-                | TypeUtils.Int16 _
-                | TypeUtils.UInt16 _
-                | TypeUtils.Int32 _ -> reinterpret TypeUtils.int32Type, reinterpret TypeUtils.int32Type
-                | TypeUtils.UInt32 _ -> idTransformation, reinterpret TypeUtils.uint32Type
-                | TypeUtils.UInt64 _ -> idTransformation, reinterpret TypeUtils.uint64Type
-                | TypeUtils.Int64 _ -> idTransformation, reinterpret TypeUtils.int64Type
-                | _ -> __notImplemented__()
-            performCILBinaryOperation op op1trans idTransformation resTrans cilState
-        | _ -> __corruptedStack__()
+        performCILBinaryOperation op idTransformation idTransformation idTransformation
     let dup (cilState : cilState) =
-        match cilState.state.opStack with
-        | t :: _ -> pushToOpStack t cilState |> List.singleton
-        | _ -> __corruptedStack__()
+        let x, cilState = pop cilState
+        cilState |> push x |> push x |> List.singleton
 
     let ret (cfg : cfgData) _ (cilState : cilState) =
-//        let cilState = withCurrentTime [] cilState
         let resultTyp =
             match cfg.methodBase with
             | :? ConstructorInfo -> Void
             | :? MethodInfo as mi -> mi.ReturnType |> Types.FromDotNetType cilState.state
             | _ -> __notImplemented__()
-        let term, cilState = popOperationalStack cilState
+        let term, cilState =
+            if not <| Reflection.HasNonVoidResult cfg.methodBase then None, cilState
+            else pop cilState |> mapfst Some
         let typ =
             match term with
             | Some t -> TypeOf t
@@ -314,24 +276,20 @@ module internal InstructionsSet =
             | t when t = TypeUtils.uint64Type -> term !== TypeUtils.UInt64.Zero
             | Numeric(Id t) when t.IsEnum ->
                 term !== MakeNumber (t.GetEnumValues().GetValue(0))
-            | _ when IsReference term -> !!(IsNullReference term)//  term !== NullRef
+            | _ when IsReference term -> !!(IsNullReference term)
             | _ -> __notImplemented__()
         GuardedApplyExpressionWithPC pc term check
 
     let binaryOperationWithBoolResult op operand1Transformation operand2Transformation (cilState : cilState) =
-        match cilState.state.opStack with
-        | _ :: _ :: _ ->
-            performCILBinaryOperation op operand1Transformation operand2Transformation (simplifyConditionResult cilState.state) cilState
-        | _ -> __corruptedStack__()
+        performCILBinaryOperation op operand1Transformation operand2Transformation (simplifyConditionResult cilState.state) cilState
+
     let ceq (cilState : cilState) =
-        match cilState.state.opStack with
-        | y :: x :: _ ->
-            let transform =
-                if TypeUtils.isBool x || TypeUtils.isBool y
-                then fun t k -> k (transform2BooleanTerm cilState.state.pc t)
-                else idTransformation
-            binaryOperationWithBoolResult OperationType.Equal transform transform cilState
-        | _ -> __corruptedStack__()
+        let y, x, _ = pop2 cilState
+        let transform =
+            if TypeUtils.isBool x || TypeUtils.isBool y
+            then fun t k -> k (transform2BooleanTerm cilState.state.pc t)
+            else idTransformation
+        binaryOperationWithBoolResult OperationType.Equal transform transform cilState
     let starg numCreator (cfg : cfgData) offset (cilState : cilState) =
         let argumentIndex = numCreator cfg.ilBytes offset
         let argTerm =
@@ -340,25 +298,20 @@ module internal InstructionsSet =
            | None -> getArgTerm argumentIndex cfg.methodBase
            | Some this when argumentIndex = 0 -> this
            | Some _ -> getArgTerm (argumentIndex - 1) cfg.methodBase
-        match cilState.state.opStack with
-        | value :: stack ->
-            let states = Memory.WriteSafe cilState.state argTerm value
-            states |> List.map (fun state -> cilState |> withState state |> withOpStack stack )
-        | _ -> __corruptedStack__()
+        let value, cilState = pop cilState
+        let states = Memory.WriteSafe cilState.state argTerm value
+        states |> List.map (fun state -> cilState |> withState state)
     let brcommon condTransform offsets (cilState : cilState) =
-        match cilState.state.opStack with
-        | cond :: stack ->
-           let offsetThen, offsetElse =
-               match offsets with
-               | [offsetThen; offsetElse] -> offsetThen, offsetElse
-               | _ -> __unreachable__()
-           let cilState = withOpStack stack cilState
-           StatedConditionalExecutionCIL cilState
-               (fun state k -> k (condTransform <| transform2BooleanTerm state.pc cond, state))
-               (fun cilState k -> k [offsetThen, cilState])
-               (fun cilState k -> k [offsetElse, cilState])
-               id
-        | _ -> __corruptedStack__()
+        let cond, cilState = pop cilState
+        let offsetThen, offsetElse =
+            match offsets with
+            | [offsetThen; offsetElse] -> offsetThen, offsetElse
+            | _ -> __unreachable__()
+        StatedConditionalExecutionCIL cilState
+            (fun state k -> k (condTransform <| transform2BooleanTerm state.pc cond, state))
+            (fun cilState k -> k [offsetThen, cilState])
+            (fun cilState k -> k [offsetElse, cilState])
+            id
     let brfalse = brcommon id
     let brtrue = brcommon (!!)
     let applyAndBranch errorStr additionalFunction brtrueFunction (cfg : cfgData) offset newOffsets (cilState : cilState) =
@@ -367,26 +320,24 @@ module internal InstructionsSet =
         | _ -> internalfail errorStr
     let boolToInt b =
         BranchExpressions (fun k -> k b) (fun k -> k TypeUtils.Int32.One) (fun k -> k TypeUtils.Int32.Zero) id
-    let bitwiseOperation op (cilState : cilState) = // TODO: it is not always bitwise! #do
-        match cilState.state.opStack with
-        | arg2 :: arg1 :: _ ->
-            let typ1, typ2 = TypeOf arg1, TypeOf arg2
-            match typ1, typ2 with
-            | Bool, Bool ->
-                binaryOperationWithBoolResult op idTransformation idTransformation cilState
-            | _ when TypeUtils.isIntegerTermType typ1 && TypeUtils.isIntegerTermType typ2 ->
-                standardPerformBinaryOperation op cilState
-            | Bool, typ2 when TypeUtils.isIntegerTermType typ2 ->
-                let newArg1 = boolToInt arg1
-                performCILBinaryOperation op (fun _ k -> k newArg1) idTransformation idTransformation cilState
-            | typ1, Bool when TypeUtils.isIntegerTermType typ1 ->
-                let newArg2 = boolToInt arg2
-                performCILBinaryOperation op idTransformation (fun _ k -> k newArg2) idTransformation cilState
-            | typ1, typ2 -> internalfailf "unhandled case for Bitwise operation %O and types: %O %O" op typ1 typ2
-        | _ -> __corruptedStack__()
+    let bitwiseOrBoolOperation op (cilState : cilState) =
+        let arg2, arg1, _ = pop2 cilState
+        let typ1, typ2 = TypeOf arg1, TypeOf arg2
+        match typ1, typ2 with
+        | Bool, Bool ->
+            binaryOperationWithBoolResult op idTransformation idTransformation cilState
+        | _ when TypeUtils.isIntegerTermType typ1 && TypeUtils.isIntegerTermType typ2 ->
+            standardPerformBinaryOperation op cilState
+        | Bool, typ2 when TypeUtils.isIntegerTermType typ2 ->
+            let newArg1 = boolToInt arg1
+            performCILBinaryOperation op (fun _ k -> k newArg1) idTransformation idTransformation cilState
+        | typ1, Bool when TypeUtils.isIntegerTermType typ1 ->
+            let newArg2 = boolToInt arg2
+            performCILBinaryOperation op idTransformation (fun _ k -> k newArg2) idTransformation cilState
+        | typ1, typ2 -> internalfailf "unhandled case for Bitwise operation %O and types: %O %O" op typ1 typ2
     let retrieveActualParameters (methodBase : MethodBase) (cilState : cilState) =
         let paramsNumber = methodBase.GetParameters().Length
-        let parameters, opStack = List.splitAt paramsNumber cilState.state.opStack
+        let parameters, opStack = Memory.PopArgumentsFromOpStack paramsNumber cilState.state.opStack
         let castParameter parameter (parInfo : ParameterInfo) =
             if Reflection.IsDelegateConstructor methodBase && parInfo.ParameterType = typeof<IntPtr> then parameter
             else
@@ -399,162 +350,124 @@ module internal InstructionsSet =
         let typ = Terms.TypeOf term
         let unsignedTyp = TypeUtils.signed2unsignedOrId typ
         if TypeUtils.isIntegerTermType typ && typ <> unsignedTyp then
-            // TODO: check whether term is not pointer
             k <| Types.Cast term unsignedTyp // no specs found about overflows
         else k term
     let performUnsignedIntegerOperation op (cilState : cilState) =
-        match cilState.state.opStack with
-        | arg2 :: arg1 :: _ when TypeUtils.isInteger arg1 && TypeUtils.isInteger arg2 ->
+        let arg2, arg1, _ = pop2 cilState
+        if TypeUtils.isInteger arg1 && TypeUtils.isInteger arg2 then
             performCILBinaryOperation op makeUnsignedInteger makeUnsignedInteger idTransformation cilState
-        | _ :: _ :: _ -> internalfailf "arguments for %O are not Integers!" op
-        | _ -> __corruptedStack__()
+        else internalfailf "arguments for %O are not Integers!" op
     let ldstr (cfg : cfgData) offset (cilState : cilState) =
         let stringToken = NumberCreator.extractInt32 cfg.ilBytes (offset + OpCodes.Ldstr.Size)
         let string = cfg.methodBase.Module.ResolveString stringToken
-        let state = cilState.state
-        let referenceAndState = Memory.AllocateString string state
-        pushResultOnOpStack cilState referenceAndState :: []
+        let reference, state = Memory.AllocateString string cilState.state
+        cilState |> withState state |> push reference |> List.singleton
     let allocateValueTypeInHeap v (cilState : cilState) =
         let address, state = Memory.BoxValueType cilState.state v
-        cilState |> withState state |> pushToOpStack address |> List.singleton
-    let ldnull (cilState : cilState) =
-        pushResultOnOpStack cilState (NullRef, cilState.state) :: []
+        cilState |> withState state |> push address |> List.singleton
+    let ldnull (cilState : cilState) = push NullRef cilState |> List.singleton
     let convu (cilState : cilState) =
-        match cilState.state.opStack with
-        | value :: stack when IsReference value ->
+        let value, cilState = pop cilState
+        if IsReference value then
             let ptr = Types.CastReferenceToPointer cilState.state value
-            cilState |> withOpStack (ptr::stack) |> List.singleton
-        | _ -> cilState :: []
+            cilState |> push ptr |> List.singleton
+        else cilState :: []
     let convi (cilState : cilState) = cilState :: []
-    let castTopOfOperationalStackUnchecked targetType typeForStack (cilState : cilState) =
-        match cilState.state.opStack with
-        | t :: stack ->
-            let term = castUnchecked targetType t cilState.state
-            let termForStack = castUnchecked typeForStack term cilState.state
-            cilState |> withOpStack (termForStack::stack) |> List.singleton
-        | _ -> __corruptedStack__()
+    let castTopOfOperationalStackUnchecked targetType (cilState : cilState) =
+        let t, cilState = pop cilState
+        let termForStack = castUnchecked targetType t cilState.state
+        cilState |> push termForStack |> List.singleton
     let ldloca numberCreator (cfg : cfgData) shiftedOffset (cilState : cilState) =
         let index = numberCreator cfg.ilBytes shiftedOffset
-        let term, state, _ = getVarTerm cilState.state index cfg.methodBase
-        pushResultOnOpStack cilState (term, state) :: []
+        let term = referenceLocalVariable index cfg.methodBase
+        push term cilState |> List.singleton
     let switch newOffsets (cilState : cilState) =
-        match cilState.state.opStack with
-        | value :: stack ->
-            let cilState = withOpStack stack cilState
-            let checkOneCase (guard, newOffset) cilState kRestCases =
-                StatedConditionalExecutionCIL cilState
-                    (fun state k -> k (guard, state))
-                    (fun cilState k -> k [newOffset, cilState])
-                    (fun _ k -> kRestCases cilState k) // ignore pc because we always know that cases do not overlap
-            let fallThroughOffset, newOffsets = List.head newOffsets, List.tail newOffsets
-            let casesAndOffsets = List.mapi (fun i offset -> value === MakeNumber i, offset) newOffsets
-            let fallThroughGuard = // TODO: [cast int :> uint] `value` should be compared as uint
-                let cond1 = Arithmetics.(>>=) value (List.length newOffsets |> MakeNumber)
-                let cond2 = Arithmetics.(<<) value TypeUtils.Int32.Zero // TODO: so no need to check this
-                cond1 ||| cond2
-            Cps.List.foldrk checkOneCase cilState ((fallThroughGuard, fallThroughOffset)::casesAndOffsets) (fun _ k -> k []) id
-        | _ -> __corruptedStack__()
+        let value, cilState = pop cilState
+        let value = makeUnsignedInteger value id
+        let checkOneCase (guard, newOffset) cilState kRestCases =
+            StatedConditionalExecutionCIL cilState
+                (fun state k -> k (guard, state))
+                (fun cilState k -> k [newOffset, cilState])
+                (fun _ k -> kRestCases cilState k) // ignore pc because we always know that cases do not overlap
+        let fallThroughOffset, newOffsets = List.head newOffsets, List.tail newOffsets
+        let casesAndOffsets = List.mapi (fun i offset -> value === MakeNumber i, offset) newOffsets
+        let fallThroughGuard = Arithmetics.(>>=) value (List.length newOffsets |> MakeNumber)
+        Cps.List.foldrk checkOneCase cilState ((fallThroughGuard, fallThroughOffset)::casesAndOffsets) (fun _ k -> k []) id
     let ldtoken (cfg : cfgData) offset (cilState : cilState) =
         let memberInfo = resolveTokenFromMetadata cfg (offset + OpCodes.Ldtoken.Size)
-        let state = cilState.state
         let res =
+            let state = cilState.state
             match memberInfo with
             | :? FieldInfo as fi -> Terms.Concrete fi.FieldHandle (Types.FromDotNetType state typeof<RuntimeFieldHandle>)
             | :? Type as t -> Terms.Concrete t.TypeHandle (Types.FromDotNetType state typeof<RuntimeTypeHandle>)
             | :? MethodInfo as mi -> Terms.Concrete mi.MethodHandle (Types.FromDotNetType state typeof<RuntimeMethodHandle>)
             | _ -> internalfailf "Could not resolve token"
-        pushResultOnOpStack cilState (res, state) :: []
+        push res cilState |> List.singleton
     let ldftn (cfg : cfgData) offset (cilState : cilState) =
         let methodInfo = resolveMethodFromMetadata cfg (offset + OpCodes.Ldftn.Size)
         let methodPtr = Terms.Concrete methodInfo (Types.FromDotNetType cilState.state (methodInfo.GetType()))
-        pushResultOnOpStack cilState (methodPtr, cilState.state) :: []
+        push methodPtr cilState |> List.singleton
     let initobj (cfg : cfgData) offset (cilState : cilState) =
-        match cilState.state.opStack with
-        | targetAddress :: stack ->
-            let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Initobj.Size)
-            let states = Memory.WriteSafe cilState.state targetAddress (Memory.DefaultOf typ)
-            states |> List.map (fun state -> cilState |> withState state |> withOpStack stack)
-        | _ -> __corruptedStack__()
+        let targetAddress, cilState = pop cilState
+        let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Initobj.Size)
+        let states = Memory.WriteSafe cilState.state targetAddress (Memory.DefaultOf typ)
+        states |> List.map (fun state -> cilState |> withState state)
     let ldind valueCast (cilState : cilState) =
-        match cilState.state.opStack with
-        | address :: stack ->
-            let value = Memory.ReadSafe cilState.state address
-            let value = valueCast value cilState.state
-            cilState |> withOpStack (value::stack) |> List.singleton
-        | _ -> __corruptedStack__()
+        let address, cilState = pop cilState
+        let value = Memory.ReadSafe cilState.state address
+        let value = valueCast value cilState.state
+        cilState |> push value |> List.singleton
     let ldindref = ldind always
     let clt = binaryOperationWithBoolResult OperationType.Less idTransformation idTransformation
     let cltun = binaryOperationWithBoolResult OperationType.Less makeUnsignedInteger makeUnsignedInteger
     let bgeHelper (cilState : cilState) =
-        match cilState.state.opStack with
-        | arg1 :: arg2 :: _ ->
-            let typ1, typ2 = Terms.TypeOf arg1, Terms.TypeOf arg2
-            if Types.IsInteger typ1 && Types.IsInteger typ2 then clt cilState
-            elif Types.IsReal typ1 && Types.IsReal typ2 then cltun cilState
-            else __notImplemented__()
-        | _ -> __corruptedStack__()
+        let arg1, arg2, _ = pop2 cilState
+        let typ1, typ2 = Terms.TypeOf arg1, Terms.TypeOf arg2
+        if Types.IsInteger typ1 && Types.IsInteger typ2 then clt cilState
+        elif Types.IsReal typ1 && Types.IsReal typ2 then cltun cilState
+        else __notImplemented__()
     let isinst (cfg : cfgData) offset (cilState : cilState) =
-        match cilState.state.opStack with
-        | object :: stack ->
-            let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Isinst.Size)
-            StatedConditionalExecutionCIL cilState
-                (fun state k -> k (IsNullReference object, state))
-                (fun cilState k -> cilState |> withOpStack (NullRef :: stack) |> List.singleton |> k)
-                (fun cilState k ->
-                    StatedConditionalExecutionCIL cilState
-                        (fun state k -> k (Types.IsCast cilState.state object typ, state))
-                        (fun cilState k -> k [cilState])
-                        (fun cilState k -> cilState |> withOpStack (NullRef :: stack) |> List.singleton |> k)
-                        k)
-                id
-        | _ -> __corruptedStack__()
-//    let isinst (cfg : cfgData) offset (cilState : cilState) = // TODO: think about null check! #do
-//        match cilState.state.opStack with
-//        | object :: stack ->
-//            let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Isinst.Size)
-//            StatedConditionalExecutionCIL cilState
-//                (fun state k -> k (Types.IsCast cilState.state object typ, state))
-//                (fun cilState k -> k [cilState])
-//                (fun cilState k -> cilState |> withOpStack (NullRef :: stack) |> List.singleton |> k)
-//                id
-//        | _ -> __corruptedStack__()
+        let object, cilState = pop cilState
+        let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Isinst.Size)
+        StatedConditionalExecutionCIL cilState
+            (fun state k -> k (IsNullReference object, state))
+            (fun cilState k -> cilState |> push NullRef |> List.singleton |> k)
+            (fun cilState k ->
+                StatedConditionalExecutionCIL cilState
+                    (fun state k -> k (Types.IsCast cilState.state object typ, state))
+                    (fun cilState k -> cilState |> push object |> List.singleton |> k)
+                    (fun cilState k -> cilState |> push NullRef |> List.singleton |> k)
+                    k)
+            id
     let cgtun (cilState : cilState) =
-        match cilState.state.opStack with
-        | arg2 :: arg1 :: _ when IsReference arg2 && IsReference arg1 ->
+        let arg2, arg1, _ = pop2 cilState
+        if IsReference arg2 && IsReference arg1 then
             binaryOperationWithBoolResult OperationType.NotEqual idTransformation idTransformation cilState
-        | _ -> binaryOperationWithBoolResult OperationType.Greater makeUnsignedInteger makeUnsignedInteger cilState
+        else binaryOperationWithBoolResult OperationType.Greater makeUnsignedInteger makeUnsignedInteger cilState
     let ldobj (cfg : cfgData) offset (cilState : cilState) =
-        match cilState.state.opStack with
-        | address :: stack ->
-            let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Ldobj.Size)
-            let value = Memory.ReadSafe cilState.state address
-            let typedValue = castUnchecked typ value cilState.state
-            cilState |> withOpStack (typedValue::stack) |> List.singleton
-        | _ -> __corruptedStack__()
+        let address, cilState = pop cilState
+        let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Ldobj.Size)
+        let value = Memory.ReadSafe cilState.state address
+        let typedValue = castUnchecked typ value cilState.state
+        cilState |> push typedValue |> List.singleton
     let stobj (cfg : cfgData) offset (cilState : cilState) =
-        match cilState.state.opStack with
-        | src :: dest :: stack ->
-            let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Stobj.Size)
-            let value = castUnchecked typ src cilState.state
-            let states = Memory.WriteSafe cilState.state dest value
-            states |> List.map (fun state -> cilState |> withState state |> withOpStack stack)
-        | _ -> __corruptedStack__()
+        let src, dest, cilState = pop2 cilState
+        let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Stobj.Size)
+        let value = castUnchecked typ src cilState.state
+        let states = Memory.WriteSafe cilState.state dest value
+        states |> List.map (fun state -> cilState |> withState state)
     let stind typ (cilState : cilState) =
-        match cilState.state.opStack with
-        | value :: address :: stack ->
-            let value = castUnchecked typ value cilState.state
-            let states = Memory.WriteSafe cilState.state address value
-            states |> List.map (fun state -> cilState |> withState state |> withOpStack stack)
-        | _ -> __corruptedStack__()
+        let value, address, cilState = pop2 cilState
+        let value = castUnchecked typ value cilState.state
+        let states = Memory.WriteSafe cilState.state address value
+        states |> List.map (fun state -> cilState |> withState state)
     let sizeofInstruction (cfg : cfgData) offset (cilState : cilState) =
         let typ = resolveTermTypeFromMetadata cilState.state cfg (offset + OpCodes.Sizeof.Size)
         let size = Types.SizeOf typ
-        cilState |> pushToOpStack (MakeNumber size) |> List.singleton
+        cilState |> push (MakeNumber size) |> List.singleton
     let throw _ _ (cilState : cilState) =
-        match cilState.state.opStack with
-        | error :: _ ->
-            cilState |> withException (Unhandled error) |> withOpStack [] |> List.singleton
-        | _ -> __corruptedStack__()
+        let error, _ = pop cilState
+        cilState |> withException (Unhandled error) |> withOpStack emptyOpStack |> List.singleton
     let leave _ _ (cilState : cilState) = cilState :: []
     let rethrow _ _ (cilState : cilState) =
         let state = cilState.state
@@ -562,11 +475,11 @@ module internal InstructionsSet =
         let state = {state with exceptionsRegister = state.exceptionsRegister.TransformToUnhandled()}
         { cilState with state = state} |> List.singleton
     let endfilter _ _ (cilState : cilState) =
-        match cilState.state.opStack with
-        | value :: [] -> {cilState with filterResult = Some value} :: []
-        | _ -> __notImplemented__()
+        let value, tmp = pop cilState
+        if tmp.state.opStack = emptyOpStack then {cilState with filterResult = Some value} :: []
+        else __notImplemented__()
     let endfinally _ _ (cilState : cilState) =
-        cilState |> withOpStack [] |> List.singleton
+        cilState |> withOpStack emptyOpStack |> List.singleton
     let zipWithOneOffset op cfgData offset newOffsets cilState =
         assert(List.length newOffsets = 1)
         let newOffset = List.head newOffsets
@@ -576,20 +489,20 @@ module internal InstructionsSet =
     let opcode2Function : (cfgData -> offset -> ip list -> cilState -> (ip * cilState) list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
     opcode2Function.[hashFunction OpCodes.Br]                 <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []
     opcode2Function.[hashFunction OpCodes.Br_S]               <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []
-    opcode2Function.[hashFunction OpCodes.Add]                <- zipWithOneOffset <| fun _ _ -> standardPerformBinaryOperation OperationType.Add
+    opcode2Function.[hashFunction OpCodes.Add]                <- zipWithOneOffset <| fun _ _ -> standardPerformBinaryOperation OperationType.Add // TODO: check float overflow [spec]
     opcode2Function.[hashFunction OpCodes.Mul]                <- zipWithOneOffset <| fun _ _ -> standardPerformBinaryOperation OperationType.Multiply
     opcode2Function.[hashFunction OpCodes.Sub]                <- zipWithOneOffset <| fun _ _ -> standardPerformBinaryOperation OperationType.Subtract
-    opcode2Function.[hashFunction OpCodes.Shl]                <- zipWithOneOffset <| fun _ _ -> shiftOperation OperationType.ShiftLeft
-    opcode2Function.[hashFunction OpCodes.Shr]                <- zipWithOneOffset <| fun _ _ -> shiftOperation OperationType.ShiftRight
-    opcode2Function.[hashFunction OpCodes.Shr_Un]             <- zipWithOneOffset <| fun _ _ -> shiftOperation OperationType.ShiftRight
+    opcode2Function.[hashFunction OpCodes.Shl]                <- zipWithOneOffset <| fun _ _ -> standardPerformBinaryOperation OperationType.ShiftLeft
+    opcode2Function.[hashFunction OpCodes.Shr]                <- zipWithOneOffset <| fun _ _ -> standardPerformBinaryOperation OperationType.ShiftRight
+    opcode2Function.[hashFunction OpCodes.Shr_Un]             <- zipWithOneOffset <| fun _ _ -> standardPerformBinaryOperation OperationType.ShiftRight // TODO: check spec #do
     opcode2Function.[hashFunction OpCodes.Ceq]                <- zipWithOneOffset <| fun _ _ -> ceq
     opcode2Function.[hashFunction OpCodes.Cgt]                <- zipWithOneOffset <| fun _ _ -> binaryOperationWithBoolResult OperationType.Greater idTransformation idTransformation
     opcode2Function.[hashFunction OpCodes.Cgt_Un]             <- zipWithOneOffset <| fun _ _ -> cgtun
     opcode2Function.[hashFunction OpCodes.Clt]                <- zipWithOneOffset <| fun _ _ -> clt
     opcode2Function.[hashFunction OpCodes.Clt_Un]             <- zipWithOneOffset <| fun _ _ -> cltun
-    opcode2Function.[hashFunction OpCodes.And]                <- zipWithOneOffset <| fun _ _ -> bitwiseOperation OperationType.LogicalAnd
-    opcode2Function.[hashFunction OpCodes.Or]                 <- zipWithOneOffset <| fun _ _ -> bitwiseOperation OperationType.LogicalOr
-    opcode2Function.[hashFunction OpCodes.Xor]                <- zipWithOneOffset <| fun _ _ -> bitwiseOperation OperationType.LogicalXor
+    opcode2Function.[hashFunction OpCodes.And]                <- zipWithOneOffset <| fun _ _ -> bitwiseOrBoolOperation OperationType.LogicalAnd
+    opcode2Function.[hashFunction OpCodes.Or]                 <- zipWithOneOffset <| fun _ _ -> bitwiseOrBoolOperation OperationType.LogicalOr
+    opcode2Function.[hashFunction OpCodes.Xor]                <- zipWithOneOffset <| fun _ _ -> bitwiseOrBoolOperation OperationType.LogicalXor
     opcode2Function.[hashFunction OpCodes.Neg]                <- zipWithOneOffset <| fun _ _ -> performCILUnaryOperation OperationType.UnaryMinus
     opcode2Function.[hashFunction OpCodes.Not]                <- zipWithOneOffset <| fun _ _ -> performCILUnaryOperation OperationType.LogicalNeg
     opcode2Function.[hashFunction OpCodes.Stloc]              <- zipWithOneOffset <| stloc (fun ilBytes offset -> NumberCreator.extractUnsignedInt16 ilBytes (offset + OpCodes.Stloc.Size) |> int)
@@ -662,23 +575,23 @@ module internal InstructionsSet =
 
     opcode2Function.[hashFunction OpCodes.Ldstr]              <- zipWithOneOffset <| ldstr
     opcode2Function.[hashFunction OpCodes.Ldnull]             <- zipWithOneOffset <| fun _ _ -> ldnull
-    opcode2Function.[hashFunction OpCodes.Conv_I1]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.int8Type TypeUtils.int32Type
-    opcode2Function.[hashFunction OpCodes.Conv_I2]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.int16Type TypeUtils.int32Type
-    opcode2Function.[hashFunction OpCodes.Conv_I4]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.int32Type TypeUtils.int32Type
-    opcode2Function.[hashFunction OpCodes.Conv_I8]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.int64Type TypeUtils.int64Type
-    opcode2Function.[hashFunction OpCodes.Conv_R4]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.float32TermType TypeUtils.float32TermType
-    opcode2Function.[hashFunction OpCodes.Conv_R8]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.float64TermType TypeUtils.float64TermType
-    opcode2Function.[hashFunction OpCodes.Conv_U1]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.uint8Type TypeUtils.int32Type
-    opcode2Function.[hashFunction OpCodes.Conv_U2]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.uint16Type TypeUtils.int32Type
-    opcode2Function.[hashFunction OpCodes.Conv_U4]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.uint32Type TypeUtils.int32Type
-    opcode2Function.[hashFunction OpCodes.Conv_U8]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.uint64Type TypeUtils.int64Type
+    opcode2Function.[hashFunction OpCodes.Conv_I1]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.int8Type
+    opcode2Function.[hashFunction OpCodes.Conv_I2]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.int16Type
+    opcode2Function.[hashFunction OpCodes.Conv_I4]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.int32Type
+    opcode2Function.[hashFunction OpCodes.Conv_I8]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.int64Type
+    opcode2Function.[hashFunction OpCodes.Conv_R4]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.float32TermType
+    opcode2Function.[hashFunction OpCodes.Conv_R8]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.float64TermType
+    opcode2Function.[hashFunction OpCodes.Conv_U1]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.uint8Type
+    opcode2Function.[hashFunction OpCodes.Conv_U2]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.uint16Type
+    opcode2Function.[hashFunction OpCodes.Conv_U4]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.uint32Type
+    opcode2Function.[hashFunction OpCodes.Conv_U8]            <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.uint64Type
     opcode2Function.[hashFunction OpCodes.Conv_I]             <- zipWithOneOffset <| fun _ _ -> convi //castTopOfOperationalStackUnchecked TypeUtils.nativeintType TypeUtils.nativeintType
     opcode2Function.[hashFunction OpCodes.Conv_U]             <- zipWithOneOffset <| fun _ _ -> convu //castTopOfOperationalStackUnchecked TypeUtils.unativeintType TypeUtils.nativeintType
-    opcode2Function.[hashFunction OpCodes.Conv_R_Un]          <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.float64TermType TypeUtils.float64TermType
+    opcode2Function.[hashFunction OpCodes.Conv_R_Un]          <- zipWithOneOffset <| fun _ _ -> castTopOfOperationalStackUnchecked TypeUtils.float64TermType
     opcode2Function.[hashFunction OpCodes.Switch]             <- fun _ _ -> switch
     opcode2Function.[hashFunction OpCodes.Ldtoken]            <- zipWithOneOffset <| ldtoken
     opcode2Function.[hashFunction OpCodes.Ldftn]              <- zipWithOneOffset <| ldftn
-    opcode2Function.[hashFunction OpCodes.Pop]                <- zipWithOneOffset <| fun _ _ st -> popOperationalStack st |> snd |> List.singleton
+    opcode2Function.[hashFunction OpCodes.Pop]                <- zipWithOneOffset <| fun _ _ st -> pop st |> snd |> List.singleton
     opcode2Function.[hashFunction OpCodes.Initobj]            <- zipWithOneOffset <| initobj
     opcode2Function.[hashFunction OpCodes.Ldarga]             <- zipWithOneOffset <| ldarga (fun ilBytes offset -> NumberCreator.extractUnsignedInt16 ilBytes (offset + OpCodes.Ldarga.Size) |> int)
     opcode2Function.[hashFunction OpCodes.Ldarga_S]           <- zipWithOneOffset <| ldarga (fun ilBytes offset -> NumberCreator.extractUnsignedInt8 ilBytes (offset + OpCodes.Ldarga_S.Size) |> int)
@@ -711,8 +624,8 @@ module internal InstructionsSet =
     opcode2Function.[hashFunction OpCodes.Endfinally]         <- zipWithOneOffset <| endfinally
     opcode2Function.[hashFunction OpCodes.Rethrow]            <- zipWithOneOffset <| rethrow
     opcode2Function.[hashFunction OpCodes.Endfilter]          <- zipWithOneOffset <| endfilter
-    // TODO: notImplemented instructions
 
+    // TODO: notImplemented instructions
     opcode2Function.[hashFunction OpCodes.Stelem_I]           <- zipWithOneOffset <| (fun _ _ _ -> Prelude.__notImplemented__())
     opcode2Function.[hashFunction OpCodes.Arglist]            <- zipWithOneOffset <| (fun _ _ _ -> Prelude.__notImplemented__())
     opcode2Function.[hashFunction OpCodes.Jmp]                <- zipWithOneOffset <| (fun _ _ _ -> Prelude.__notImplemented__())

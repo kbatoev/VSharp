@@ -44,8 +44,9 @@ module internal CilStateOperations =
     // ------------------------------- Helper functions for cilState and state interaction -------------------------------
 
     let stateOf (cilState : cilState) = cilState.state
-    let popStackOf (cilState : cilState) = {cilState with state = Memory.PopStack cilState.state}
+    let popStackOf (cilState : cilState) = {cilState with state = Memory.PopFrame cilState.state}
 
+    let emptyOpStack = Memory.EmptyState.opStack
     let withCurrentTime time (cilState : cilState) = {cilState with state = {cilState.state with currentTime = time}}
     let withOpStack opStack (cilState : cilState) = {cilState with state = {cilState.state with opStack = opStack}}
     let withState state (cilState : cilState) = {cilState with state = state}
@@ -54,24 +55,32 @@ module internal CilStateOperations =
     let withNoResult (cilState : cilState) = {cilState with state = {cilState.state with returnRegister = None}}
     let withResultState result (state : state) = {state with returnRegister = Some result}
     let withIp ip (cilState : cilState) = {cilState with ip = ip}
-    let pushToOpStack v (cilState : cilState) = {cilState with state = {cilState.state with opStack = v :: cilState.state.opStack}}
+    let push v (cilState : cilState) = {cilState with state = {cilState.state with opStack = Memory.PushToOpStack v cilState.state.opStack}}
+    let pop (cilState : cilState) =
+        let v, opStack = Memory.PopFromOpStack cilState.state.opStack
+        v, {cilState with state = {cilState.state with opStack = opStack}}
+    let pop2 (cilState : cilState) =
+        let arg2, cilState = pop cilState
+        let arg1, cilState = pop cilState
+        arg2, arg1, cilState
+    let pop3 (cilState : cilState) =
+        let arg3, cilState = pop cilState
+        let arg2, cilState = pop cilState
+        let arg1, cilState = pop cilState
+        arg3, arg2, arg1, cilState
     let withException exc (cilState : cilState) = {cilState with state = {cilState.state with exceptionsRegister = exc}}
 
     // ------------------------------- Helper functions for cilState -------------------------------
 
-    let pushResultOnOpStack (cilState : cilState) (res, state) =
-        if res <> Terms.Nop then cilState |> withState state |> pushToOpStack res
-        else withState state cilState
-
-    let pushResultToOperationalStack (cilStates : cilState list)  =
+    let pushResultToOperationalStack (cilStates : cilState list) =
         cilStates |> List.map (fun (cilState : cilState) ->
             let state = cilState.state
-            if state.exceptionsRegister.UnhandledError then cilState // TODO: check whether opStack = [] is needed
+            if state.exceptionsRegister.UnhandledError then cilState // TODO: check whether opStack := [] is needed
             else
                 let opStack =
                     match state.returnRegister with
                     | None -> state.opStack
-                    | Some r -> r :: state.opStack
+                    | Some r -> Memory.PushToOpStack r state.opStack
                 let state = {state with returnRegister = None; opStack = opStack}
                 {cilState with state = state})
 
@@ -102,25 +111,18 @@ module internal CilStateOperations =
 
     // ------------------------------- Pretty printing for cilState -------------------------------
 
-    let private dumpSection section (sb : StringBuilder) = // TODO: use this functions from Core!!!!!! #do
-        sprintf "--------------- %s: ---------------" section |> sb.AppendLine // TODO: use append with \n #do
-
     let private dumpSectionValue section value (sb : StringBuilder) =
-        sb |> dumpSection section |> (fun sb -> sb.AppendLine value)
-
-    let private dumpDict section sort keyToString valueToString (sb : StringBuilder) d =
-        if PersistentDict.isEmpty d then sb
-        else
-            let sb = dumpSection section sb
-            PersistentDict.dump d sort keyToString valueToString |> sb.AppendLine
+        let sb = Utils.PrettyPrinting.dumpSection section sb
+        Utils.PrettyPrinting.appendLine sb value
 
     let ipAndMethodBase2String (ip : ip, m : MethodBase) =
         sprintf "Method: %O, ip = %O" m ip
 
     // TODO: print filterResult and IIE ?
     let dump (cilState : cilState) : string =
-        let sb = dumpSectionValue "IP" (sprintf "%O" cilState.ip) (StringBuilder())
-        let sb = dumpDict "Level" id ipAndMethodBase2String id sb cilState.level
+        let sb = (StringBuilder())
+        let sb = dumpSectionValue "IP" (sprintf "%O" cilState.ip) sb
+        let sb = Utils.PrettyPrinting.dumpDict "Level" id ipAndMethodBase2String id sb cilState.level
         let stateDump = Memory.Dump cilState.state
         let sb = dumpSectionValue "State" stateDump sb
         if sb.Length = 0 then "<EmptyCilState>" else sb.ToString()

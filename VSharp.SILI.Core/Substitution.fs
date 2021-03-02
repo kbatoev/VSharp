@@ -25,7 +25,7 @@ module Substitution =
             else
                 match op with
                 | Operator op -> Operators.simplifyOperation op args' id
-                | Cast(_, targetType) ->
+                | Cast targetType ->
                     assert(List.length args' = 1)
                     let arg = List.head args'
                     primitiveCast arg targetType
