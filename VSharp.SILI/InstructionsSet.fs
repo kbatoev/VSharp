@@ -39,6 +39,8 @@ module internal TypeUtils =
     let uint64Type      = Numeric typedefof<uint64>
     let charType        = Numeric typedefof<char>
 
+    let isEnum typ = typ |> ToDotNetType |> (fun t -> t.IsEnum)
+
     let signed2unsignedOrId = function
         | Bool -> uint32Type
         | Numeric (Id typ) when typ = typedefof<int32> || typ = typedefof<uint32> -> uint32Type
@@ -46,6 +48,7 @@ module internal TypeUtils =
         | Numeric (Id typ) when typ = typedefof<int16> || typ = typedefof<uint16> -> uint16Type
         | Numeric (Id typ) when typ = typedefof<int64> || typ = typedefof<uint64> -> uint64Type
         | Numeric (Id typ) when typ = typedefof<double> -> float64TermType
+        | typ when isEnum typ -> typ
         | _ -> __unreachable__()
     let unsigned2signedOrId = function
         | Bool -> int32Type
@@ -55,10 +58,11 @@ module internal TypeUtils =
         | Numeric (Id typ) when typ = typedefof<int64> || typ = typedefof<uint64> -> int64Type
         | Numeric (Id typ) when typ = typedefof<double> -> float64TermType
         | Pointer _ as t -> t
+        | t when isEnum t -> t
         | _ -> __unreachable__()
     let integers = [charType; int8Type; int16Type; int32Type; int64Type; uint8Type; uint16Type; uint32Type; uint64Type]
 
-    let isIntegerTermType typ = integers |> List.contains typ
+    let isIntegerTermType typ = integers |> List.contains typ || isEnum typ
     let isFloatTermType typ = typ = float32TermType || typ = float64TermType
     let isInteger = Terms.TypeOf >> isIntegerTermType
     let isBool = Terms.TypeOf >> IsBool
