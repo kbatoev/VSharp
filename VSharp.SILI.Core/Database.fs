@@ -9,6 +9,7 @@ type label =
     | Exit
     | FindingHandler of offset // offset -- source of exception
 
+[<CustomComparison; CustomEquality>]
 type ipEntry = { label : label; method : MethodBase}
     with
     member x.CanBeExpanded () =
@@ -19,6 +20,17 @@ type ipEntry = { label : label; method : MethodBase}
         match x.label with
         | Instruction i -> i
         | _              -> internalfail "Could not get vertex from destination"
+    override x.Equals y =
+        match y with
+        | :? ipEntry as y -> x.label = y.label && x.method = y.method
+        | _ -> false
+    override x.GetHashCode() = (x.label, x.method).GetHashCode()
+    interface System.IComparable with
+        override x.CompareTo y =
+            match y with
+            | :? ipEntry as y when x.method.Equals(y.method) -> compare x.label y.label
+            | :? ipEntry as y -> x.method.MetadataToken.CompareTo(y.method.MetadataToken)
+            | _ -> -1
 
 type level = pdict<ipEntry, uint>
 type ip = ipEntry list

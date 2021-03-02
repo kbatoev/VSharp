@@ -742,9 +742,12 @@ type MethodSearcher() =
 
     let effectsFirst (s1 : cilState) (s2 : cilState) =
         let lastFrame1 = List.head s1.state.frames
-        if s1 = s2 then 0
-        elif lastFrame1.isEffect then -1 else 1
-
+        let lastFrame2 = List.head s2.state.frames
+        match lastFrame1.isEffect, lastFrame2.isEffect with
+        | _ when s1 = s2 -> 0
+        | true, false -> -1
+        | false, true -> 1
+        | _ -> compare s1.ip s2.ip
 
     override x.PickNext q =
         let canBePropagated (s : cilState) =
