@@ -538,6 +538,56 @@ namespace VSharp.Test.Tests
             throw new Exception();
         }
 
+        public static int D(int arg)
+        {
+            return arg + 1;
+        }
+
+        public static int X(int arg)
+        {
+            return D(arg + 20);
+        }
+
+        public static int G(int arg)
+        {
+            return X(arg + 300);
+        }
+
+        [TestSvm]
+        public static int BreakCallSitesComposition()
+        {
+            int x = X(0);
+            int g = G(0);
+
+            return x + g;
+        }
+
+        [TestSvm]
+        public static int BreakCallSitesCompositionRecursion(int n)
+        {
+            int sum = D(n);
+            int restSum = 0;
+            if (n > 0)
+            {
+                restSum = BreakCallSitesCompositionRecursion(n - 1);
+            }
+
+            return sum + restSum;
+        }
+
+        [TestSvm]
+        public static int BreakCallSitesCompositionCycle(int n)
+        {
+            int sum = 0;
+            while (n >= 0)
+            {
+                sum += D(n);
+                n--;
+            }
+
+            return sum;
+        }
+
         [TestSvm]
         public static int qweqwe(int x, int y) {
             //A[] array = new A[15];
