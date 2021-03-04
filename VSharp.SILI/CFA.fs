@@ -741,13 +741,17 @@ type MethodSearcher() =
         | _ -> false
 
     let effectsFirst (s1 : cilState) (s2 : cilState) =
-        let lastFrame1 = List.head s1.state.frames
-        let lastFrame2 = List.head s2.state.frames
-        match lastFrame1.isEffect, lastFrame2.isEffect with
-        | _ when s1 = s2 -> 0
-        | true, false -> -1
-        | false, true -> 1
-        | _ -> compare s1.ip s2.ip
+        if s1 = s2 then 0
+        elif List.length s1.ip > List.length s2.ip then -1
+        elif List.length s1.ip < List.length s2.ip then 1
+        elif List.length s1.ip > 1 then compare s1.ip s2.ip
+        else
+            let lastFrame1 = List.head s1.state.frames
+            let lastFrame2 = List.head s2.state.frames
+            match lastFrame1.isEffect, lastFrame2.isEffect with
+            | true, false -> -1
+            | false, true -> 1
+            | _ -> compare s1.ip s2.ip
 
     override x.PickNext q =
         let canBePropagated (s : cilState) =
@@ -765,8 +769,11 @@ type MethodSearcher() =
         | s :: _ when shouldStartExploringInIsolation q s ->
             let currentIp = currentIp s
             let ilMethodMtd : ILMethodMetadata = {methodBase = currentIp.method} //TODO: #mbdo replace IFunctionIdentifier from stackFrame with MethodBase
-            let stateForComposition, _, _ = ExplorerBase.FormInitialStateWithoutStatics true ilMethodMtd
-            let cilStateForComposition = makeInitialState currentIp.method stateForComposition
-            Some cilStateForComposition
+            try
+                let stateForComposition, _, _ = ExplorerBase.FormInitialStateWithoutStatics true ilMethodMtd
+                let cilStateForComposition = makeInitialState currentIp.method stateForComposition
+                Some cilStateForComposition
+            with
+            | :? InsufficientInformationException -> Some s
         | s :: _ -> Some s
 
