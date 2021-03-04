@@ -223,6 +223,7 @@ type public ExplorerBase() =
         let s = cilState.state
         let reference, s = Memory.AllocateDefaultClass s (Types.FromDotNetType s exceptionType)
         let cilState = cilState |> withState s |> withException (Constructing reference)
+        let cilState = cilState |> pushToOpStack reference // NOTE: it is done intentionally to determine whether we finished exception construction
         x.ReduceFunctionSignatureCIL cilState ctor (Some reference) (Specified arguments) false (fun cilState ->
         x.ReduceFunction ctor cilState id)
 

@@ -192,14 +192,14 @@ module internal Instruction =
         let calledMethod = resolveMethodFromMetadata m ilBytes (pos + opCode.Size)
         {sourceMethod = m; calledMethod = calledMethod; opCode = opCode; offset = pos}
 
-    let private resultAddition (m : MethodBase) = if Reflection.HasNonVoidResult m then 1 else 0
+//    let resultAddition (m : MethodBase) = if Reflection.HasNonVoidResult m then 1 else 0
 
     let calculateOpStackChange (opCode : OpCode) (*m : MethodBase*) (calledMethod : MethodBase option) : int =
         match opCode, calledMethod with
-        | Ret, None -> 0 // we remove result from current frame and add it to previous one
+        | Ret, None -> 0// we remove result from current frame and add it to previous one
         | _, None -> opStackBalanceChange.[int <| opCode.StackBehaviourPop] + opStackBalanceChange.[int <| opCode.StackBehaviourPush]
         | NewObj, Some c -> 1 - c.GetParameters().Length
         | Call, Some c
         | Calli, Some c
-        | CallVirt, Some c -> resultAddition c - (c.GetParameters().Length + if c.IsStatic then 0 else 1)
+        | CallVirt, Some c -> -(c.GetParameters().Length + if c.IsStatic then 0 else 1)
         | _ -> __unreachable__()

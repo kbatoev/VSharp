@@ -14,7 +14,7 @@ type cilState =
       iie : InsufficientInformationException option
       level : level
       startingIP : ipEntry
-      popsCount : int * int      // minimum and currentValue
+      popsCount : int * int      // minimum and currentValue //TODO: change it to int, it should be set while construction
     }
 
 module internal CilStateOperations =
@@ -76,6 +76,10 @@ module internal CilStateOperations =
 //        | {label = Exit} :: [], _ -> oldIps // no need to moveCurrentIp, maybe we want to execute current ip
 //        | _ -> newIps @ oldIps
 
+    let composePopsCount (min1, cnt1) (_, cnt2) =
+        let cnt = cnt1 + cnt2
+        min min1 cnt, cnt
+
     let compose (cilState1 : cilState) (cilState2 : cilState) =
         assert(currentIp cilState1 = cilState2.startingIP)
 
@@ -89,9 +93,10 @@ module internal CilStateOperations =
         let ip = composeIps (List.tail cilState1.ip) cilState2.ip
         let states = Memory.ComposeStates cilState1.state cilState2.state id
         let leftOpStack = List.skip (-1 * fst cilState2.popsCount) cilState1.state.opStack
+        let popsCount = composePopsCount cilState1.popsCount cilState2.popsCount
         let makeResultState (state : state) =
             let state' = {state with opStack = state.opStack @ leftOpStack}
-            {cilState2 with state = state'; ip = ip; level = level; popsCount = cilState1.popsCount
+            {cilState2 with state = state'; ip = ip; level = level; popsCount = popsCount
                             startingIP = cilState1.startingIP; iie = iie}
         List.map makeResultState states
 
@@ -138,6 +143,11 @@ module internal CilStateOperations =
     let private isStaticConstructor (m : MethodBase) =
         m.IsStatic && m.Name = ".cctor"
 
+    let isErrorConstructed (s : cilState) =
+        match s.state.opStack, s.state.exceptionsRegister with
+        | term :: _, Constructing e -> term = e
+        | _ -> false
+
     let rec moveCurrentIp (cilState : cilState) : cilState list =
         match cilState.ip with
         | {label = Instruction offset; method = m} :: _ ->
@@ -160,7 +170,14 @@ module internal CilStateOperations =
             // TODO: add popStackOf here (golds will change)
             //|> withCurrentTime [] //TODO: #ask Misha about current time
             cilState :: []
-        | {label = Exit; method = m} :: ips' when isStaticConstructor m -> {cilState with ip = ips'} :: []
+        | {label = Exit; method = m} :: ips' when isStaticConstructor m ->
+            cilState |> popStackOf |> withIp ips' |> List.singleton
+        | {label = Exit} :: ({label = Instruction offset; method = m} as ip) :: ips' when isErrorConstructed cilState ->
+            let e =
+                match cilState.state.exceptionsRegister with
+                | Constructing e -> e
+                | _ -> __unreachable__()
+            cilState |> withException (Unhandled e) |> withIp (List.tail cilState.ip) |> List.singleton
         | {label = Exit} :: ({label = Instruction offset; method = m} as ip) :: ips' ->
             //TODO: assert(isCallIp ip)
             let callSite = Instruction.parseCallSite m offset

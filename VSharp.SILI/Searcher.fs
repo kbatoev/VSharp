@@ -7,7 +7,12 @@ open VSharp.Core
 
 type IndexedQueue() =
     let q = List<cilState>()
-    member x.Add s = q.Add s
+    member x.Add (s : cilState) =
+        if List.length s.ip <> List.length s.state.frames then __unreachable__()
+        if not <| isError s then
+            if List.length s.state.opStack <> snd s.popsCount then __unreachable__() //TODO: remove it, because it is relevant only for MethodSearcher
+
+        q.Add s
 
     member x.Remove s =
         let removed = q.Remove s

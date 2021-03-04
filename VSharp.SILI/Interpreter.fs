@@ -23,7 +23,7 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
 
         let step s =
             let states = List.filter (isEffectFor (currentIp s)) (q.GetStates())
-
+            if List.length s.ip = 6 then ()
             match states with
             | [] ->
                 let goodStates, incompleteStates, errors = ILInterpreter(x).ExecuteOnlyOneInstruction s
@@ -1068,25 +1068,40 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let oldMin, oldBalance = cilState.popsCount
         let newBalance = oldBalance + Instruction.calculateOpStackChange opCode calledMethod
         let newMinimum =  min newBalance oldMin
-        {cilState with popsCount = (newMinimum, newBalance)}
+        if newMinimum = -1 && newBalance = -1 then __unreachable__()
+        let result = {cilState with popsCount = (newMinimum, newBalance)}
+        if snd result.popsCount <> List.length result.state.opStack then
+//            let c = (Option.get calledMethod)
+//            let resultAddition = Instruction.resultAddition c
+//            let dx = (c.GetParameters().Length + if c.IsStatic then 0 else 1)
+            __unreachable__()
+        result
 
     member x.MakeStepForErroredCilState (cilState : cilState) =
         match cilState.state.exceptionsRegister with
         | Constructing e ->
             let currentIp = currentIp cilState
             let states =
-                if currentIp.label = Exit then
-                    cilState |> withException (Unhandled e) |> withIp (List.tail cilState.ip) |> List.singleton
-                else x.ExecuteInstruction cilState
+//                if List.tail cilState.ip =   then
+//                    cilState |> withException (Unhandled e) |> withIp (List.tail cilState.ip) |> List.singleton
+                x.ExecuteInstruction cilState
             states
         | _ -> __notImplemented__()
 
     member x.MakeStep (cilState : cilState) =
+        let isOk (s : cilState) =
+            if isError s then s
+            else
+                if snd s.popsCount <> List.length s.state.opStack then __unreachable__()
+                s
+
         if isError cilState then x.MakeStepForErroredCilState cilState
         else x.ExecuteInstruction cilState
+        |> List.map isOk
 
     member private x.ExecuteInstruction (cilState : cilState) =
         Logger.trace "ExecuteInstruction:\n%s" (dump cilState)
+        if List.length cilState.ip = 2 then ()
         match cilState.ip with
         | {label = Instruction offset; method = m} :: _ ->
             let cfg = CFG.findCfg m
@@ -1095,8 +1110,10 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             let newSts = opcode2Function.[hashFunction opCode] cfg offset newIps cilState
 
             let renewInstructionsInfo cilState =
-                let cilState = x.RenewOpStackBalance opCode cfg offset cilState
-                x.IncrementLevelIfNeeded cfg offset cilState
+                if isError cilState then cilState
+                else
+                    let cilState = x.RenewOpStackBalance opCode cfg offset cilState
+                    x.IncrementLevelIfNeeded cfg offset cilState
             newSts |> List.map renewInstructionsInfo
         | {label = Exit} :: _ -> moveCurrentIp cilState
         | [] -> __unreachable__()
