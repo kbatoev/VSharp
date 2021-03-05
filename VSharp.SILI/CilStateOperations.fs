@@ -14,22 +14,22 @@ type cilState =
       iie : InsufficientInformationException option
       level : level
       startingIP : ipEntry
-      popsCount : int * int      // minimum and currentValue //TODO: change it to int, it should be set while construction
+      initialOpStackSize : uint32
     }
 
 module internal CilStateOperations =
 
-    let makeCilState curV state =
+    let makeCilState curV initialOpStackSize state =
         { ip = [curV]
           state = state
           filterResult = None
           iie = None
           level = PersistentDict.empty
           startingIP = curV
-          popsCount = 0,0
+          initialOpStackSize = initialOpStackSize
         }
 
-    let makeInitialState m state = makeCilState (instruction m 0) state
+    let makeInitialState m state = makeCilState (instruction m 0) 0u state
 
     let isIIEState (s : cilState) = Option.isSome s.iie
 
@@ -47,11 +47,6 @@ module internal CilStateOperations =
         match s.state.exceptionsRegister with
         | Unhandled _ -> true
         | _ -> false
-    let isUnmadeError (s : cilState) =
-        match s.state.exceptionsRegister with
-        | Constructing _ -> true
-        | _ -> false
-
 
     let currentIp (s : cilState) = List.head s.ip
     let pushToIp (ip : ipEntry) (cilState : cilState) = {cilState with ip = ip :: cilState.ip}
@@ -92,15 +87,12 @@ module internal CilStateOperations =
         let iie = None // we might concretize state, so we should try executed instructions again
         let ip = composeIps (List.tail cilState1.ip) cilState2.ip
         let states = Memory.ComposeStates cilState1.state cilState2.state id
-        let leftOpStack = List.skip (-1 * fst cilState2.popsCount) cilState1.state.opStack
-        let popsCount = composePopsCount cilState1.popsCount cilState2.popsCount
+        let leftOpStack = List.skip (int cilState2.initialOpStackSize) cilState1.state.opStack
         let makeResultState (state : state) =
             let state' = {state with opStack = state.opStack @ leftOpStack}
-            {cilState2 with state = state'; ip = ip; level = level; popsCount = popsCount
+            {cilState2 with state = state'; ip = ip; level = level; initialOpStackSize = cilState1.initialOpStackSize
                             startingIP = cilState1.startingIP; iie = iie}
         List.map makeResultState states
-
-
 
     let incrementLevel (cilState : cilState) k =
         let lvl = cilState.level
@@ -143,11 +135,6 @@ module internal CilStateOperations =
     let private isStaticConstructor (m : MethodBase) =
         m.IsStatic && m.Name = ".cctor"
 
-    let isErrorConstructed (s : cilState) =
-        match s.state.opStack, s.state.exceptionsRegister with
-        | term :: _, Constructing e -> term = e
-        | _ -> false
-
     let rec moveCurrentIp (cilState : cilState) : cilState list =
         match cilState.ip with
         | {label = Instruction offset; method = m} :: _ ->
@@ -172,12 +159,6 @@ module internal CilStateOperations =
             cilState :: []
         | {label = Exit; method = m} :: ips' when isStaticConstructor m ->
             cilState |> popStackOf |> withIp ips' |> List.singleton
-        | {label = Exit} :: ({label = Instruction offset; method = m} as ip) :: ips' when isErrorConstructed cilState ->
-            let e =
-                match cilState.state.exceptionsRegister with
-                | Constructing e -> e
-                | _ -> __unreachable__()
-            cilState |> withException (Unhandled e) |> withIp (List.tail cilState.ip) |> List.singleton
         | {label = Exit} :: ({label = Instruction offset; method = m} as ip) :: ips' ->
             //TODO: assert(isCallIp ip)
             let callSite = Instruction.parseCallSite m offset
@@ -254,12 +235,18 @@ module internal CilStateOperations =
             let sb = dumpSection section sb
             PersistentDict.dump d sort keyToString valueToString |> sb.AppendLine
 
+    let private dumpIp (ip : ip) =
+        List.fold (fun acc entry -> sprintf "%s\n%O" acc entry) "" ip
+
     let ipAndMethodBase2String (ip : ipEntry) =
         sprintf "Method: %O, label = %O" ip.method ip.label
 
     // TODO: print filterResult and IIE ?
     let dump (cilState : cilState) : string =
-        let sb = dumpSectionValue "IP" (sprintf "%O" cilState.ip) (StringBuilder())
+        let sb = dumpSectionValue "Starting ip" (sprintf "%O" cilState.startingIP) (StringBuilder())
+        let sb = dumpSectionValue "IP" (dumpIp cilState.ip) sb
+        let sb = dumpSectionValue "IIE" (sprintf "%O" cilState.iie) sb
+        let sb = dumpSectionValue "Initial OpStack Size" (sprintf "%O" cilState.initialOpStackSize) sb
         let sb = dumpDict "Level" id ipAndMethodBase2String id sb cilState.level
 
         let stateDump = VSharp.Core.API.Memory.Dump cilState.state

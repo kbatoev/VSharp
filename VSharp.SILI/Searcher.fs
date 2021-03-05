@@ -8,10 +8,7 @@ open VSharp.Core
 type IndexedQueue() =
     let q = List<cilState>()
     member x.Add (s : cilState) =
-        if List.length s.ip <> List.length s.state.frames then __unreachable__()
-        if not <| isError s then
-            if List.length s.state.opStack <> snd s.popsCount then __unreachable__() //TODO: remove it, because it is relevant only for MethodSearcher
-
+        if List.length s.ip <> List.length s.state.frames then __unreachable__() //TODO: change to assert
         q.Add s
 
     member x.Remove s =
@@ -32,19 +29,27 @@ type ISearcher() =
         let (|CilStateWithIIE|_|) (cilState : cilState) = cilState.iie
 
         let isResult (s : cilState) =
-            let lastFrame = List.head s.state.frames
+            let lastFrame = List.last s.state.frames
             s.startingIP = initialState.startingIP && not lastFrame.isEffect
 
         let allStates = q.GetStates() |> List.filter isResult
-        let iieStates = List.filter isIIEState allStates
-        let nonErrors = List.filter (isError >> not) allStates
+        let iieStates, nonIIEstates = List.partition isIIEState allStates
+
+        let printInfoForDebug () =
+            let allStatesInQueue = q.GetStates()
+            Logger.info "No states were obtained. Most likely such a situation is a bug. Check it!"
+            Logger.info "Indexed queue size = %d\n" (List.length allStatesInQueue)
+            List.iteri (fun i -> dump >> Logger.info "Queue.[%d]:\n%s\n" i) allStatesInQueue
+            true
 
         match iieStates with
         | CilStateWithIIE iie :: _ -> raise iie
         | _ :: _ -> __unreachable__()
 //        | _, _ :: _ -> internalfailf "exception handling is not implemented yet"
-        | _ when nonErrors = [] -> internalfailf "No states were obtained. Most likely such a situation is a bug. Check it!"
-        | _ -> nonErrors
+        | _ when nonIIEstates = [] ->
+            assert(printInfoForDebug())
+            internalfailf "No states were obtained. Most likely such a situation is a bug. Check it!"
+        | _ -> nonIIEstates
 
 
 type DummySearcher() =

@@ -46,38 +46,6 @@ module internal NumberCreator =
 
 module internal Instruction =
 
-    let opStackBalanceChange : int [] = Array.create 29 0
-    do
-        opStackBalanceChange.[int <| StackBehaviour.Pop0] <- 0
-        opStackBalanceChange.[int <| StackBehaviour.Pop1] <- -1
-        opStackBalanceChange.[int <| StackBehaviour.Pop1_pop1] <- -2
-        opStackBalanceChange.[int <| StackBehaviour.Popi] <- -1
-        opStackBalanceChange.[int <| StackBehaviour.Popi_pop1] <- -2
-        opStackBalanceChange.[int <| StackBehaviour.Popi_popi] <- -2
-        opStackBalanceChange.[int <| StackBehaviour.Popi_popi8] <- -2
-        opStackBalanceChange.[int <| StackBehaviour.Popi_popi_popi] <- -3
-        opStackBalanceChange.[int <| StackBehaviour.Popi_popr4] <- -2
-        opStackBalanceChange.[int <| StackBehaviour.Popi_popr8] <- -2
-        opStackBalanceChange.[int <| StackBehaviour.Popref] <- -1
-        opStackBalanceChange.[int <| StackBehaviour.Popref_pop1] <- -2
-        opStackBalanceChange.[int <| StackBehaviour.Popref_popi] <- -2
-        opStackBalanceChange.[int <| StackBehaviour.Popref_popi_popi] <- -3
-        opStackBalanceChange.[int <| StackBehaviour.Popref_popi_popi8] <- -3
-        opStackBalanceChange.[int <| StackBehaviour.Popref_popi_popr4] <- -3
-        opStackBalanceChange.[int <| StackBehaviour.Popref_popi_popr8] <- -3
-        opStackBalanceChange.[int <| StackBehaviour.Popref_popi_popref] <- -3
-        opStackBalanceChange.[int <| StackBehaviour.Push0] <- 0
-        opStackBalanceChange.[int <| StackBehaviour.Push1] <- 1
-        opStackBalanceChange.[int <| StackBehaviour.Push1_push1] <- 2
-        opStackBalanceChange.[int <| StackBehaviour.Pushi] <- 1
-        opStackBalanceChange.[int <| StackBehaviour.Pushi8] <- 1
-        opStackBalanceChange.[int <| StackBehaviour.Pushr4] <- 1
-        opStackBalanceChange.[int <| StackBehaviour.Pushr8] <- 1
-        opStackBalanceChange.[int <| StackBehaviour.Pushref] <- 1
-        opStackBalanceChange.[int <| StackBehaviour.Varpop] <- 0 // should not be called
-        opStackBalanceChange.[int <| StackBehaviour.Varpush] <- 0 // should not be called
-        opStackBalanceChange.[int <| StackBehaviour.Popref_popi_pop1] <- -3
-
     let private extractToken = NumberCreator.extractInt32
 
     let resolveFieldFromMetadata methodBase ilBytes = extractToken ilBytes >> Reflection.resolveField methodBase
@@ -191,15 +159,3 @@ module internal Instruction =
         let ilBytes = m.GetMethodBody().GetILAsByteArray()
         let calledMethod = resolveMethodFromMetadata m ilBytes (pos + opCode.Size)
         {sourceMethod = m; calledMethod = calledMethod; opCode = opCode; offset = pos}
-
-//    let resultAddition (m : MethodBase) = if Reflection.HasNonVoidResult m then 1 else 0
-
-    let calculateOpStackChange (opCode : OpCode) (*m : MethodBase*) (calledMethod : MethodBase option) : int =
-        match opCode, calledMethod with
-        | Ret, None -> 0// we remove result from current frame and add it to previous one
-        | _, None -> opStackBalanceChange.[int <| opCode.StackBehaviourPop] + opStackBalanceChange.[int <| opCode.StackBehaviourPush]
-        | NewObj, Some c -> 1 - c.GetParameters().Length
-        | Call, Some c
-        | Calli, Some c
-        | CallVirt, Some c -> -(c.GetParameters().Length + if c.IsStatic then 0 else 1)
-        | _ -> __unreachable__()

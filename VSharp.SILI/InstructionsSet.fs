@@ -564,16 +564,17 @@ module internal InstructionsSet =
         cilState |> withOpStack [] |> List.singleton
     let zipWithOneOffset op cfgData offset newIps cilState =
         assert(List.length newIps = 1)
+        assert(not <| isError cilState)
         let newIp = List.head newIps
         let cilStates = op cfgData offset cilState
+        let errors, goods = cilStates |> List.partition isError
 
-        if isError cilState then
-            assert(isUnmadeError cilState)
-            assert(List.forall isUnmadeError cilStates)
-            cilStates |> List.map (withIp newIp)
-        else
-            let errored, good = cilStates |> List.partition isError
-            (good |> List.map (withIp newIp)) @ errored
+        let changeIpIfNeeded (newState : cilState) =
+            // case when constructing runtime exception
+            if List.length newState.state.frames = List.length cilState.state.frames then withIp newIp newState
+            else newState
+
+        errors @ List.map changeIpIfNeeded goods
 
     let opcode2Function : (cfgData -> offset -> ip list -> cilState -> cilState list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
     opcode2Function.[hashFunction OpCodes.Br]                 <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []

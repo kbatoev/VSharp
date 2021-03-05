@@ -666,7 +666,7 @@ module public CFA =
                 let symbolicOpStack = makeSymbolicOpStack currentTime d.opStack
                 let modifiedState = prepareStateWithConcreteInfo {initialState with currentTime = currentTime; startingTime = currentTime; opStack = symbolicOpStack} d
 
-                let initialCilState = makeCilState d.u modifiedState
+                let initialCilState = makeCilState d.u (uint32 <| List.length symbolicOpStack) modifiedState
                 if cfg.offsetsDemandingCall.ContainsKey offset then
                     let cilState', callSite, numberToDrop = executeSeparatedOpCode methodInterpreter cfg initialCilState
                     let createEdge (cilState' : cilState) dstVertex = CallEdge (srcVertex, dstVertex, callSite, cilState'.state, numberToDrop, ilInterpreter)
@@ -742,9 +742,6 @@ type MethodSearcher() =
 
     let effectsFirst (s1 : cilState) (s2 : cilState) =
         if s1 = s2 then 0
-//        elif List.length s1.ip > List.length s2.ip then -1
-//        elif List.length s1.ip < List.length s2.ip then 1
-//        elif List.length s1.ip > 1 then compare s1.ip s2.ip
         else
             let lastFrame1 = List.last s1.state.frames
             let lastFrame2 = List.last s2.state.frames
@@ -760,12 +757,7 @@ type MethodSearcher() =
             let conditions = [isIIEState; isUnhandledError; x.Used; isExecutable >> not]
             conditions |> List.fold (fun acc f -> acc || f s) false |> not
 
-        let states =
-//            try
-                let forPropagation = q.GetStates() |> List.filter canBePropagated
-                forPropagation |> List.sortWith effectsFirst
-//            with
-//            | _ -> __unreachable__()
+        let states = q.GetStates() |> List.filter canBePropagated |> List.sortWith effectsFirst
         match states with
         | [] -> None
         | s :: _ when shouldStartExploringInIsolation q s ->

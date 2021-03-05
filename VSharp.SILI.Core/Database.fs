@@ -31,6 +31,7 @@ type ipEntry = { label : label; method : MethodBase}
             | :? ipEntry as y when x.method.Equals(y.method) -> compare x.label y.label
             | :? ipEntry as y -> x.method.MetadataToken.CompareTo(y.method.MetadataToken)
             | _ -> -1
+    override x.ToString() = sprintf "{label = %O; method = %s}" x.label (Reflection.GetFullMethodName x.method)
 
 type level = pdict<ipEntry, uint>
 type ip = ipEntry list

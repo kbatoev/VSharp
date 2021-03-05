@@ -43,8 +43,8 @@ type callSite = { sourceMethod : System.Reflection.MethodBase; offset : offset
         sprintf "sourceMethod = %s\noffset=%x\nopcode=%O\ncalledMethod = %s"
             (Reflection.GetFullMethodName x.sourceMethod) x.offset x.opCode (Reflection.GetFullMethodName x.calledMethod)
 
+// TODO: is it good idea to add new constructor for recognizing cilStates that construct RuntimeExceptions?
 type exceptionRegister =
-    | Constructing of term
     | Unhandled of term
     | Caught of term
     | NoException
@@ -74,7 +74,6 @@ type exceptionRegister =
         | _ -> None
     static member map f x =
         match x with
-        | Constructing e -> Constructing <| f e
         | Unhandled e -> Unhandled <| f e
         | Caught e -> Caught <| f e
         | NoException -> NoException
@@ -855,7 +854,6 @@ module internal Memory =
 
     let composeRaisedExceptionsOf (state : state) (error : exceptionRegister) =
         match state.exceptionsRegister, error with
-        | Constructing e, NoException -> Constructing e
         | NoException, _ -> error |> exceptionRegister.map (fillHoles state)
         | _ -> __unreachable__()
 

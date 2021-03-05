@@ -205,7 +205,7 @@ type public ExplorerBase() =
 
     abstract CreateException : System.Type -> term list -> cilState -> cilState list
     default x.CreateException exceptionType arguments cilState =
-//        x.InitializeStatics cilState exceptionType (List.map (fun cilState ->
+        assert (not <| exceptionType.IsValueType)
         let constructors = exceptionType.GetConstructors()
         let argumentsLength = List.length arguments
         let argumentsTypes =
@@ -219,13 +219,10 @@ type public ExplorerBase() =
                                    |> Seq.forall2(fun p1 p2 -> p2.ParameterType.IsAssignableFrom(p1)) argumentsTypes)
         assert(List.length ctors = 1)
         let ctor = List.head ctors
-        assert (not <| exceptionType.IsValueType)
-        let s = cilState.state
-        let reference, s = Memory.AllocateDefaultClass s (Types.FromDotNetType s exceptionType)
-        let cilState = cilState |> withState s |> withException (Constructing reference)
-        let cilState = cilState |> pushToOpStack reference // NOTE: it is done intentionally to determine whether we finished exception construction
-        x.ReduceFunctionSignatureCIL cilState ctor (Some reference) (Specified arguments) false (fun cilState ->
-        x.ReduceFunction ctor cilState id)
+        let fullConstructorName = Reflection.GetFullMethodName ctor
+        assert (Loader.hasRuntimeExceptionsImplementation fullConstructorName)
+        let proxyCtor = Loader.getRuntimeExceptionsImplementation fullConstructorName
+        x.ReduceFunctionSignatureCIL cilState proxyCtor None (Specified arguments) false List.singleton
 
     member x.InvalidProgramException cilState =
         x.CreateException typeof<System.InvalidProgramException> [] cilState
