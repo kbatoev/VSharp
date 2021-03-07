@@ -17,11 +17,11 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
         let q = IndexedQueue()
         q.Add initialState
 
-        let hasAnyProgress (s : cilState) = currentIp s <> startingIpOf s
+        let hasAnyProgress (s : cilState) = [s.startingIP] <> s.ip
         let isEffectFor ipEntry (s : cilState) = hasAnyProgress s && startingIpOf s = ipEntry
-
         let step s =
             let states = List.filter (isEffectFor (currentIp s)) (q.GetStates())
+            let states = if isEffectFor (currentIp s) s then s :: states else states
             match states with
             | [] ->
                 let goodStates, incompleteStates, errors = ILInterpreter(x).ExecuteOnlyOneInstruction s

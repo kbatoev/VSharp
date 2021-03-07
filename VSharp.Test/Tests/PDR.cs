@@ -77,6 +77,13 @@ namespace VSharp.Test.Tests
         }
 
         [TestSvm]
+        public static int factAgain(int n)
+        {
+            if (n <= 0) return 1;
+            return n * factAgain(n - 1);
+        }
+
+        [TestSvm]
         public static int CallIncrementOutside()
         {
             return WithStaticMembersUsedInCFA.Increment();

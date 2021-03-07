@@ -7,6 +7,16 @@ open VSharp.Core
 
 type IndexedQueue() =
     let q = List<cilState>()
+//    let isRecursiveEffect (s : cilState) =
+//        let isEffect = (Seq.last s.state.frames).isEffect
+//        if isEffect then
+//            let effectsMethod = (Seq.last s.state.frames).func.Method
+//            match currentIp s with
+//            | {label = Instruction offset; method = m} when Instruction.isDemandingCallOpCode (Instruction.parseInstruction m offset)->
+//                let callSite = Instruction.parseCallSite m offset
+//                callSite.calledMethod.Equals(effectsMethod)
+//            | _ -> false
+//        else false
     member x.Add (s : cilState) =
         if List.length s.ip <> List.length s.state.frames then __unreachable__() //TODO: change to assert
         q.Add s
@@ -30,7 +40,7 @@ type ISearcher() =
 
         let isResult (s : cilState) =
             let lastFrame = List.last s.state.frames
-            s.startingIP = initialState.startingIP && not lastFrame.isEffect
+            s.startingIP = initialState.startingIP && not lastFrame.isEffect && s.ip = [{label = Exit; method = s.startingIP.method}]
 
         let allStates = q.GetStates() |> List.filter isResult
         let iieStates, nonIIEstates = List.partition isIIEState allStates
