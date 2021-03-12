@@ -9,7 +9,7 @@ open FSharpx.Collections
 open VSharp
 open VSharp.Core
 open CilStateOperations
-open ipEntryOperations
+open ipOperations
 
 module TermUtils =
     let internal term (t : term) = t.term
@@ -214,7 +214,7 @@ module public CFA =
             else reference
         pushToOpStack valueOnStack cilState
 
-    type Vertex private(id, m : MethodBase, ip : ipEntry, opStack : operationalStack) =
+    type Vertex private(id, m : MethodBase, ip : ip, opStack : operationalStack) =
         static let ids : Dictionary<MethodBase, int> = Dictionary<_,_>()
         let lemmas = Lemmas(m, ip)
         let paths = Paths(m, ip)
@@ -364,7 +364,7 @@ module public CFA =
 
                 // Do NOT turn this List.fold into List.exists to be sure that EVERY returned state is propagated
                 let goodStates = List.filter (stateOf >> x.CommonFilterStates) cilStates
-                if List.length goodStates <> List.length cilStates then Logger.trace "Some states were not propagated from %O to %O" src.Ip cilState.ip
+                if List.length goodStates <> List.length cilStates then Logger.trace "Some states were not propagated from %O to %O" src.Ip cilState.ipStack
 
             let cilStates = compose cilState effect
             print cilStates
@@ -430,9 +430,9 @@ module public CFA =
 
         [<CustomEquality; CustomComparison>]
         type bypassDataForEdges =
-            { u : ipEntry
+            { u : ip
               srcVertex : Vertex
-              v : ipEntry
+              v : ip
               uOut : int
               vOut : int
               minSCCs : int
@@ -581,13 +581,13 @@ module public CFA =
             cilState, callSite, numberToDrop
 
         // TODO: change offset to ip for Vertex
-        let private ip2Offset (ip : ipEntry) =
+        let private ip2Offset (ip : ip) =
             match ip.label with
             | Instruction i -> i
             | Exit -> -1
             | _ -> __notImplemented__()
 
-        let private createVertexIfNeeded methodBase opStack (v : ipEntry) (vertices : pdict<ipEntry * operationalStack, Vertex>)  =
+        let private createVertexIfNeeded methodBase opStack (v : ip) (vertices : pdict<ip * operationalStack, Vertex>)  =
             let concreteOpStack = List.filter shouldRemainOnOpStack opStack
             if PersistentDict.contains (v, concreteOpStack) vertices then
                 PersistentDict.find vertices (v, concreteOpStack), vertices
@@ -655,7 +655,7 @@ module public CFA =
         let private computeCFAForBlock (methodInterpreter : MethodInterpreter) (initialState : state) (cfa : cfa) (block : unitBlock<'a>) =
             let ilInterpreter = ILInterpreter(methodInterpreter)
             let cfg = cfa.cfg
-            let rec bypass (cfg : cfg) (q : IPriorityQueue<bypassDataForEdges>) (used : pset<bypassDataForEdges>) (vertices : pdict<ipEntry * operationalStack, Vertex>) currentTime =
+            let rec bypass (cfg : cfg) (q : IPriorityQueue<bypassDataForEdges>) (used : pset<bypassDataForEdges>) (vertices : pdict<ip * operationalStack, Vertex>) currentTime =
                 let d, q = PriorityQueue.pop q
                 assert(PersistentSet.contains d used)
                 let srcVertex = d.srcVertex
@@ -748,9 +748,9 @@ type MethodSearcher() =
             match lastFrame1.isEffect, lastFrame2.isEffect with
             | true, false -> -1
             | false, true -> 1
-            | _ when List.length s1.ip > List.length s2.ip -> 1
-            | _ when List.length s1.ip < List.length s2.ip -> -1
-            | _ -> compare s1.ip s2.ip
+            | _ when List.length s1.ipStack > List.length s2.ipStack -> 1
+            | _ when List.length s1.ipStack < List.length s2.ipStack -> -1
+            | _ -> compare s1.ipStack s2.ipStack
 
     override x.PickNext q =
         let canBePropagated (s : cilState) =

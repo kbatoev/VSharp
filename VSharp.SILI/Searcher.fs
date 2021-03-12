@@ -18,7 +18,7 @@ type IndexedQueue() =
 //            | _ -> false
 //        else false
     member x.Add (s : cilState) =
-        if List.length s.ip <> List.length s.state.frames then __unreachable__() //TODO: change to assert
+        if List.length s.ipStack <> List.length s.state.frames then __unreachable__() //TODO: change to assert
         q.Add s
 
     member x.Remove s =
@@ -40,7 +40,8 @@ type ISearcher() =
 
         let isResult (s : cilState) =
             let lastFrame = List.last s.state.frames
-            s.startingIP = initialState.startingIP && not lastFrame.isEffect && s.ip = [{label = Exit; method = s.startingIP.method}]
+            let method = initialState.startingIP.method
+            s.startingIP = initialState.startingIP && not lastFrame.isEffect && s.ipStack = [{label = Exit; method = method}]
 
         let allStates = q.GetStates() |> List.filter isResult
         let iieStates, nonIIEstates = List.partition isIIEState allStates

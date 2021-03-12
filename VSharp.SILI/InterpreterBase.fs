@@ -11,7 +11,7 @@ open System.Collections.Generic
 open System.Reflection
 open VSharp.System
 open CilStateOperations
-open ipEntryOperations
+open ipOperations
 
 type codeLocationSummary = { cilState : cilState } // state.returnRegister is used as result
     with

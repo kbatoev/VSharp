@@ -15,7 +15,7 @@ type state = VSharp.Core.state
 
 type operationalStack = term list
 
-type ip = VSharp.Core.ipEntry
+type ip = VSharp.Core.ip
 type level = VSharp.Core.level
 
 type ipTransition =

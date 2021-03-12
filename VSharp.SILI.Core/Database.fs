@@ -10,7 +10,7 @@ type label =
     | FindingHandler of offset // offset -- source of exception
 
 [<CustomComparison; CustomEquality>]
-type ipEntry = { label : label; method : MethodBase}
+type ip = { label : label; method : MethodBase}
     with
     member x.CanBeExpanded () =
         match x.label with
@@ -22,28 +22,28 @@ type ipEntry = { label : label; method : MethodBase}
         | _              -> internalfail "Could not get vertex from destination"
     override x.Equals y =
         match y with
-        | :? ipEntry as y -> x.label = y.label && x.method = y.method
+        | :? ip as y -> x.label = y.label && x.method = y.method
         | _ -> false
     override x.GetHashCode() = (x.label, x.method).GetHashCode()
     interface System.IComparable with
         override x.CompareTo y =
             match y with
-            | :? ipEntry as y when x.method.Equals(y.method) -> compare x.label y.label
-            | :? ipEntry as y -> x.method.MetadataToken.CompareTo(y.method.MetadataToken)
+            | :? ip as y when x.method.Equals(y.method) -> compare x.label y.label
+            | :? ip as y -> x.method.MetadataToken.CompareTo(y.method.MetadataToken)
             | _ -> -1
     override x.ToString() = sprintf "{label = %O; method = %s}" x.label (Reflection.GetFullMethodName x.method)
 
-type level = pdict<ipEntry, uint>
-type ip = ipEntry list
+type level = pdict<ip, uint>
+type ipStack = ip list
 
-module ipEntryOperations =
+module ipOperations =
     let exit m = {label = Exit; method = m}
     let instruction m i = {label = Instruction i; method = m}
     let findingHandler m i = {label = FindingHandler i; method = m}
     let withExit ip = {ip with label = Exit}
     let withOffset offset ip = {ip with label = Instruction offset}
-    let labelOf (ip : ipEntry) = ip.label
-    let methodOf (ip : ipEntry) = ip.method
+    let labelOf (ip : ip) = ip.label
+    let methodOf (ip : ip) = ip.method
 
 module Level =
     let zero : level = __notImplemented__()
@@ -80,7 +80,7 @@ type query =
         sprintf "{query [lvl %s]: %O}" (Level.toString x.lvl) x.queryFml
 
 type databaseId =
-    { m : MethodBase; ip : ipEntry } with
+    { m : MethodBase; ip : ip } with
     override x.ToString() =
         sprintf "%O.%O[ip=%O]" x.m.DeclaringType.FullName x.m.Name x.ip
 
@@ -89,7 +89,7 @@ module internal Database =
     let private paths = new Dictionary<databaseId, HashSet<path>>()
     let private queries = new Dictionary<databaseId, HashSet<query>>()
 
-    let idOfVertex (m : MethodBase) (ip : ipEntry) : databaseId = { m=m; ip=ip }
+    let idOfVertex (m : MethodBase) (ip : ip) : databaseId = { m=m; ip=ip }
 
     let addLemma (id : databaseId) (lemma : lemma) =
         let lemmas = Dict.tryGetValue2 lemmas id (fun () -> new HashSet<_>())
@@ -113,7 +113,7 @@ module internal Database =
         if not <| queries.Remove query then
             noQueryError()
 
-type Lemmas(m : MethodBase, ip : ipEntry) =
+type Lemmas(m : MethodBase, ip : ip) =
     let id = Database.idOfVertex m ip
     let parsed = new Dictionary<level, HashSet<lemma>>()
     member x.Add (lemma : lemma) =
@@ -121,7 +121,7 @@ type Lemmas(m : MethodBase, ip : ipEntry) =
         let lemmas = Dict.tryGetValue2 parsed lemma.lvl (fun () -> new HashSet<_>())
         lemmas.Add lemma |> ignore
 
-type Paths(m : MethodBase, ip : ipEntry) =
+type Paths(m : MethodBase, ip : ip) =
     let id = Database.idOfVertex m ip
     let parsed = new Dictionary<level, HashSet<path>>()
     let used = HashSet<path>() // TODO: ``used'' set should be moved to Analyzer
@@ -137,7 +137,7 @@ type Paths(m : MethodBase, ip : ipEntry) =
         paths
 
 
-type Queries(m : MethodBase, ip : ipEntry) =
+type Queries(m : MethodBase, ip : ip) =
     let id = Database.idOfVertex m ip
     let parsed = new Dictionary<level, HashSet<query>>()
     member x.Add (query : query) =

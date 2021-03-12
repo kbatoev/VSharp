@@ -109,7 +109,7 @@ module internal TypeUtils =
 
 module internal InstructionsSet =
     open CilStateOperations
-    open ipEntryOperations
+    open ipOperations
 
     let __corruptedStack__() = raise (InvalidProgramException())
 
@@ -276,7 +276,7 @@ module internal InstructionsSet =
         | t :: _ -> pushToOpStack t cilState |> List.singleton
         | _ -> __corruptedStack__()
 
-    let isCallIp (ip : ipEntry) =
+    let isCallIp (ip : ip) =
         let offset = ip.Offset()
         let opCode = Instruction.parseInstruction ip.method offset
         Instruction.isDemandingCallOpCode opCode
@@ -294,8 +294,8 @@ module internal InstructionsSet =
                 let castedResult = castUnchecked resultTyp res cilState.state
                 pushToOpStack castedResult cilState
 
-        match cilState.ip with
-        | ip :: ips -> {cilState with ip = {label = Exit; method = ip.method} :: ips} |> List.singleton
+        match cilState.ipStack with
+        | ip :: ips -> {cilState with ipStack = {label = Exit; method = ip.method} :: ips} |> List.singleton
         | [] -> __unreachable__()
 
     let transform2BooleanTerm pc (term : term) =
@@ -339,7 +339,7 @@ module internal InstructionsSet =
             let states = Memory.WriteSafe cilState.state argTerm value
             states |> List.map (fun state -> cilState |> withState state |> withOpStack stack )
         | _ -> __corruptedStack__()
-    let brcommon condTransform (ips : ip list) (cilState : cilState) =
+    let brcommon condTransform (ips : ipStack list) (cilState : cilState) =
         match cilState.state.opStack with
         | cond :: stack ->
            let ipThen, ipElse =
@@ -576,7 +576,7 @@ module internal InstructionsSet =
 
         errors @ List.map changeIpIfNeeded goods
 
-    let opcode2Function : (cfgData -> offset -> ip list -> cilState -> cilState list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
+    let opcode2Function : (cfgData -> offset -> ipStack list -> cilState -> cilState list) [] = Array.create 300 (fun _ _ _ -> internalfail "Interpreter is not ready")
     opcode2Function.[hashFunction OpCodes.Br]                 <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []
     opcode2Function.[hashFunction OpCodes.Br_S]               <- zipWithOneOffset <| fun _ _ cilState -> cilState :: []
     opcode2Function.[hashFunction OpCodes.Add]                <- zipWithOneOffset <| fun _ _ -> standardPerformBinaryOperation OperationType.Add

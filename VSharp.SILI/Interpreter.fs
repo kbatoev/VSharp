@@ -7,7 +7,7 @@ open InstructionsSet
 open CilStateOperations
 open VSharp
 open VSharp.Core
-open ipEntryOperations
+open ipOperations
 
 type cfg = CFG.cfgData
 
@@ -17,11 +17,10 @@ type public MethodInterpreter(searcher : ISearcher (*ilInterpreter : ILInterpret
         let q = IndexedQueue()
         q.Add initialState
 
-        let hasAnyProgress (s : cilState) = [s.startingIP] <> s.ip
-        let isEffectFor ipEntry (s : cilState) = hasAnyProgress s && startingIpOf s = ipEntry
+        let hasAnyProgress (s : cilState) = [s.startingIP] <> s.ipStack
+        let isEffectFor currentIp (s : cilState) = hasAnyProgress s && startingIpOf s = currentIp
         let step s =
-            let states = List.filter (isEffectFor (currentIp s)) (q.GetStates())
-            let states = if isEffectFor (currentIp s) s then s :: states else states
+            let states = List.filter (isEffectFor (currentIp s)) (q.GetStates() @ [s])
             match states with
             | [] ->
                 let goodStates, incompleteStates, errors = ILInterpreter(x).ExecuteOnlyOneInstruction s
@@ -183,7 +182,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         let (&&&) = Microsoft.FSharp.Core.Operators.(&&&)
         let moveIp (cilState : cilState) =
             let ip =
-                match cilState.ip with
+                match cilState.ipStack with
                 | ip :: _ -> {label = Exit; method = ip.method}
                 | _ -> __unreachable__()
             cilState |> withLastIp ip
@@ -494,7 +493,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 callConstructor cilState ref id
 
         let k (reference, state) =
-            cilState |> withState state |> pushToOpStack reference |> moveCurrentIp
+            cilState |> withState state |> pushToOpStack reference |> moveIpStack
 
         if Reflection.IsDelegateConstructor constructorInfo then
             x.CommonCreateDelegate constructorInfo cilState args k
@@ -1018,7 +1017,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
             if cfg.sortedOffsets.[index] = lastOffset then cfg.ilBytes.Length
             else cfg.sortedOffsets.[index + 1]
 
-        let isIpOfCurrentBasicBlock (ip : ipEntry) =
+        let isIpOfCurrentBasicBlock (ip : ip) =
             match ip.label with
             | Instruction i when ip.method = cfg.methodBase -> startingOffset <= i && i < endOffset
             | _ -> false
@@ -1028,7 +1027,7 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
         x.ExecuteAllInstructionsWhile (always false) cilState
 
     // returns finishedStates, incompleteStates, erroredStates
-    member x.ExecuteAllInstructionsWhile (condition : ipEntry -> bool) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
+    member x.ExecuteAllInstructionsWhile (condition : ip -> bool) (cilState : cilState) : (cilState list * cilState list * cilState list)  =
         let rec executeAllInstructions (finishedStates, incompleteStates, errors) cilState =
             let ip = currentIp cilState
             try
@@ -1066,11 +1065,11 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
 
     member private x.ExecuteInstruction (cilState : cilState) =
         Logger.trace "ExecuteInstruction:\n%s" (dump cilState)
-        match cilState.ip with
+        match cilState.ipStack with
         | {label = Instruction offset; method = m} :: _ ->
             let cfg = CFG.findCfg m
             let opCode = Instruction.parseInstruction m offset
-            let newIps = moveCurrentIp cilState |> List.map (fun cilState -> cilState.ip)
+            let newIps = moveIpStack cilState |> List.map (fun cilState -> cilState.ipStack)
             let newSts = opcode2Function.[hashFunction opCode] cfg offset newIps cilState
 
             let renewInstructionsInfo cilState =
@@ -1078,6 +1077,6 @@ and public ILInterpreter(methodInterpreter : MethodInterpreter) as this =
                 else
                     x.IncrementLevelIfNeeded cfg offset cilState
             newSts |> List.map renewInstructionsInfo
-        | {label = Exit} :: _ -> moveCurrentIp cilState
+        | {label = Exit} :: _ -> moveIpStack cilState
         | [] -> __unreachable__()
         | _ -> __notImplemented__()
